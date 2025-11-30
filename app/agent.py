@@ -22,19 +22,27 @@ def create_memory(model_name: str) -> Memory:
     }
     return Memory.from_config(config)
 
-SYSTEM_PROMPT = """You are a helpful AI assistant.
-Current date and time: {datetime}
+MEMORY_INSTRUCTION = """If the user shares personal information, preferences, or facts worth remembering for future conversations, add at the END of your response:
+MEMORIES: ["fact 1", "fact 2"]
+Only include genuinely useful long-term facts. Do not include this line if nothing is worth remembering."""
 
-{memories}
+SYSTEM_PROMPT = f"""You are a helpful AI assistant.
+Current date and time: {{datetime}}
 
-Be concise and helpful."""
+{{memories}}
 
-SYSTEM_PROMPT_WITH_TOOLS = """You are a helpful AI assistant with access to tools.
-Current date and time: {datetime}
+Be concise and helpful.
 
-{memories}
+{MEMORY_INSTRUCTION}"""
 
-Use tools when needed to help the user. Be concise and helpful."""
+SYSTEM_PROMPT_WITH_TOOLS = f"""You are a helpful AI assistant with access to tools.
+Current date and time: {{datetime}}
+
+{{memories}}
+
+Use tools when needed to help the user. Be concise and helpful.
+
+{MEMORY_INSTRUCTION}"""
 
 def get_model_capabilities(model_name: str) -> list[str]:
     try:
@@ -90,7 +98,6 @@ class ConversationManager:
         self.memory_model = DEFAULT_MEMORY_MODEL
         self.capabilities: list[str] = []
         self.memory: Memory | None = None
-        self._pending_memory_task: asyncio.Task | None = None
 
     def set_model(self, model_name: str):
         if model_name != self.model_name:
@@ -134,21 +141,13 @@ class ConversationManager:
         logger.info(f"Found {len(memories_list)} memories:\n{memories_text}")
         return f"Relevant memories about this user:\n{memories_text}", memories_list
 
-    def save_memory(self, user_msg: str, assistant_msg: str) -> list[str]:
-        conversation_text = f"User: {user_msg}\nAssistant: {assistant_msg}"
-        logger.debug(f"Saving to memory: {conversation_text[:100]}...")
-        result = self.memory.add(conversation_text, user_id=USER_ID)
-        logger.info(f"Memory save result: {result}")
-        saved = [r.get("memory", "") for r in result.get("results", []) if r.get("event") in ["ADD", "UPDATE"]]
-        logger.info(f"Saved memories: {saved}")
+    def save_memories_direct(self, memories: list[str]) -> list[str]:
+        saved = []
+        for mem in memories:
+            logger.info(f"Saving memory: {mem}")
+            self.memory.add(mem, user_id=USER_ID)
+            saved.append(mem)
         return saved
-
-    def _save_memory_sync(self, user_msg: str, assistant_msg: str):
-        return self.save_memory(user_msg, assistant_msg)
-
-    async def save_memory_async(self, user_msg: str, assistant_msg: str) -> list[str]:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._save_memory_sync, user_msg, assistant_msg)
 
     async def stream_response(self, user_input: str):
         yield {"type": "memory_search_start", "query": user_input[:100]}
@@ -193,6 +192,13 @@ class ConversationManager:
             elif kind == "on_tool_end":
                 logger.info(f"Tool result: {event['name']}")
                 yield {"type": "tool_end", "name": event["name"], "output": str(event["data"]["output"])}
+            elif kind == "on_chain_error":
+                err = str(event.get("data", {}).get("error", "Unknown error"))
+                if "error parsing tool call" in err.lower():
+                    logger.warning(f"Tool parsing error (will retry): {err[:200]}")
+                    yield {"type": "error", "message": "I had trouble formatting that. Let me try again..."}
+                else:
+                    logger.error(f"Chain error: {err}")
         
         final_state = await agent.ainvoke({"messages": self.messages})
         last_msg = final_state["messages"][-1]
@@ -203,14 +209,17 @@ class ConversationManager:
         if full_thinking:
             logger.info(f"Total thinking content: {len(full_thinking)} chars")
 
-        self._pending_memory_task = asyncio.create_task(self.save_memory_async(user_input, full_response))
-
-    async def get_pending_memory_result(self) -> list[str]:
-        if self._pending_memory_task:
-            result = await self._pending_memory_task
-            self._pending_memory_task = None
-            return result
-        return []
+        import re
+        import json
+        mem_match = re.search(r'MEMORIES:\s*(\[.*?\])', full_response, re.DOTALL)
+        if mem_match:
+            try:
+                memories = json.loads(mem_match.group(1))
+                if memories:
+                    saved = self.save_memories_direct(memories)
+                    yield {"type": "memories_saved", "memories": saved}
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse memories: {mem_match.group(1)}")
 
     def clear(self):
         logger.info(f"Clearing {len(self.messages)} messages")

@@ -17,6 +17,9 @@ def parse_artifacts(output: str) -> tuple[str, list[str]]:
         return clean_output, artifacts
     return output, []
 
+def strip_memories_line(content: str) -> str:
+    return re.sub(r'\n?MEMORIES:\s*\[.*?\]', '', content, flags=re.DOTALL).strip()
+
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     logger.info(f"Chat request: model={request.model}, message={request.message[:50]}...")
@@ -34,7 +37,9 @@ async def chat_stream(request: ChatRequest):
                     yield {"data": json.dumps({"thinking": chunk["content"]})}
                 elif chunk["type"] == "content":
                     full_content += chunk["content"]
-                    yield {"data": json.dumps({"content": chunk["content"]})}
+                    clean_chunk = strip_memories_line(chunk["content"])
+                    if clean_chunk:
+                        yield {"data": json.dumps({"content": chunk["content"]})}
                 elif chunk["type"] == "tool_start":
                     logger.info(f"Tool started: {chunk['name']}")
                     yield {"data": json.dumps({"tool_call": chunk["name"], "status": "started", "input": chunk.get("input", {})})}
@@ -43,6 +48,12 @@ async def chat_stream(request: ChatRequest):
                     output = chunk["output"]
                     clean_output, artifacts = parse_artifacts(output)
                     yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "output": clean_output, "artifacts": artifacts})}
+                elif chunk["type"] == "memories_saved":
+                    logger.info(f"Memories saved: {chunk['memories']}")
+                    yield {"data": json.dumps({"memories_saved": chunk["memories"]})}
+                elif chunk["type"] == "error":
+                    logger.warning(f"Non-fatal error: {chunk['message']}")
+                    yield {"data": json.dumps({"content": chunk["message"]})}
             logger.info(f"Response completed: {len(full_content)} chars")
             yield {"data": json.dumps({"done": True})}
         except Exception as e:

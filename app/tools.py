@@ -10,8 +10,8 @@ ARTIFACTS_DIR.mkdir(exist_ok=True)
 
 @tool
 def run_python_code(code: str) -> str:
-    """Execute Python code and return the output. Use for calculations, data processing, plotting charts. 
-    When creating charts with matplotlib, save them using plt.savefig('chart.png') and they will be displayed to user."""
+    """Execute Python code and return the output. Use for calculations, data processing, plotting charts.
+    IMPORTANT FOR CHARTS: Save charts with plt.savefig('chart.png'). The chart will be AUTOMATICALLY displayed to the user - you do NOT need to output any image links, markdown images, or 'click here' text. After the code runs, simply describe what the chart shows in plain text."""
     artifact_id = str(uuid.uuid4())[:8]
     work_dir = ARTIFACTS_DIR / artifact_id
     work_dir.mkdir(exist_ok=True)

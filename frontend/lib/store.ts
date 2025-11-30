@@ -4,7 +4,8 @@ import { persist } from "zustand/middleware"
 type ToolCall = { name: string; status: "started" | "completed"; input?: Record<string, unknown>; output?: string; artifacts?: string[] }
 type MemoryOp = { type: "search"; status: "started" | "completed"; query?: string; memories?: string[] }
 type ThinkingBlock = { id: string; content: string; isStreaming: boolean }
-type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
+type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
+type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean }
 
 type ChatStore = {
@@ -15,6 +16,7 @@ type ChatStore = {
   selectedModel: string
   memoryModel: string
   currentThinkingId: string | null
+  editingMessageId: string | null
   setMessages: (fn: (msgs: MessageType[]) => MessageType[]) => void
   addMessage: (msg: MessageType) => void
   setInput: (input: string) => void
@@ -23,6 +25,7 @@ type ChatStore = {
   setSelectedModel: (model: string) => void
   setMemoryModel: (model: string) => void
   setCurrentThinkingId: (id: string | null) => void
+  setEditingMessageId: (id: string | null) => void
   clearMessages: () => void
 }
 
@@ -36,6 +39,7 @@ export const useChatStore = create<ChatStore>()(
       selectedModel: "qwen3:4b",
       memoryModel: "qwen3:1.7b",
       currentThinkingId: null,
+      editingMessageId: null,
       setMessages: (fn) => set((s) => ({ messages: fn(s.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setInput: (input) => set({ input }),
@@ -44,6 +48,7 @@ export const useChatStore = create<ChatStore>()(
       setSelectedModel: (selectedModel) => set({ selectedModel }),
       setMemoryModel: (memoryModel) => set({ memoryModel }),
       setCurrentThinkingId: (currentThinkingId) => set({ currentThinkingId }),
+      setEditingMessageId: (editingMessageId) => set({ editingMessageId }),
       clearMessages: () => set({ messages: [] }),
     }),
     {
@@ -57,4 +62,4 @@ export const useChatStore = create<ChatStore>()(
   )
 )
 
-export type { ToolCall, MemoryOp, ThinkingBlock, MessageType, Model }
+export type { ToolCall, MemoryOp, ThinkingBlock, MessageType, MessageBranch, Model }
