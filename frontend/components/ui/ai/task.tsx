@@ -6,7 +6,6 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
-import { ChevronDownIcon, SearchIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
 
 export type TaskItemFileProps = ComponentProps<'div'>;
@@ -44,7 +43,7 @@ export const Task = ({
 }: TaskProps) => (
   <Collapsible
     className={cn(
-      'data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=closed]:animate-out data-[state=open]:animate-in',
+      'data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=closed]:animate-out data-[state=open]:animate-in mb-2',
       className
     )}
     defaultOpen={defaultOpen}
@@ -53,23 +52,16 @@ export const Task = ({
 );
 
 export type TaskTriggerProps = ComponentProps<typeof CollapsibleTrigger> & {
-  title: string;
+  title?: string;
 };
 
 export const TaskTrigger = ({
   children,
   className,
-  title,
   ...props
 }: TaskTriggerProps) => (
   <CollapsibleTrigger asChild className={cn('group', className)} {...(props as any)}>
-    {children ?? (
-      <div className="flex cursor-pointer items-center gap-2 text-muted-foreground hover:text-foreground">
-        <SearchIcon className="size-4" />
-        <p className="text-sm">{title}</p>
-        <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
-      </div>
-    )}
+    {children}
   </CollapsibleTrigger>
 );
 
@@ -87,7 +79,7 @@ export const TaskContent = ({
     )}
     {...(props as any)}
   >
-    <div className="mt-4 space-y-2 border-muted border-l-2 pl-4">
+    <div className="mt-2 space-y-1 border-muted border-l-2 pl-3 ml-2">
       {children}
     </div>
   </CollapsibleContent>

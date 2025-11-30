@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.routers import chat, models, memories
+from app.routers import chat, models, memories, artifacts
 
 app = FastAPI(title="Ollama Chat API")
 
@@ -17,6 +17,7 @@ app.add_middleware(
 app.include_router(chat.router)
 app.include_router(models.router)
 app.include_router(memories.router)
+app.include_router(artifacts.router)
 
 @app.on_event("startup")
 async def startup():

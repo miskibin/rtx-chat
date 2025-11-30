@@ -1,12 +1,21 @@
 from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 import json
+import re
 from loguru import logger
 
 from app.schemas import ChatRequest
 from app.agent import conversation
 
 router = APIRouter(tags=["chat"])
+
+def parse_artifacts(output: str) -> tuple[str, list[str]]:
+    match = re.search(r'\[ARTIFACTS:([^\]]+)\]', output)
+    if match:
+        artifacts = match.group(1).split(',')
+        clean_output = output.replace(match.group(0), '').strip()
+        return clean_output, artifacts
+    return output, []
 
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
@@ -31,7 +40,9 @@ async def chat_stream(request: ChatRequest):
                     yield {"data": json.dumps({"tool_call": chunk["name"], "status": "started", "input": chunk.get("input", {})})}
                 elif chunk["type"] == "tool_end":
                     logger.info(f"Tool completed: {chunk['name']}")
-                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "output": chunk["output"]})}
+                    output = chunk["output"]
+                    clean_output, artifacts = parse_artifacts(output)
+                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "output": clean_output, "artifacts": artifacts})}
             logger.info(f"Response completed: {len(full_content)} chars")
             yield {"data": json.dumps({"done": True})}
         except Exception as e:

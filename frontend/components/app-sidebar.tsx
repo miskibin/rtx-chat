@@ -7,6 +7,7 @@ import { Sidebar, SidebarContent, SidebarHeader, SidebarFooter, SidebarGroup, Si
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Trash2Icon, DatabaseIcon, MessageSquareIcon } from "lucide-react"
+import { useChatStore } from "@/lib/store"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -15,12 +16,12 @@ type Model = { name: string }
 export function AppSidebar() {
   const pathname = usePathname()
   const [models, setModels] = useState<Model[]>([])
-  const [memoryModel, setMemoryModel] = useState("qwen3:1.7b")
+  const { memoryModel, setMemoryModel, clearMessages } = useChatStore()
 
   useEffect(() => {
     fetch(`${API_URL}/models`).then(r => r.json()).then(d => setModels(d.models || []))
     fetch(`${API_URL}/chat/settings`).then(r => r.json()).then(d => setMemoryModel(d.memory_model))
-  }, [])
+  }, [setMemoryModel])
 
   const handleMemoryModelChange = async (model: string) => {
     setMemoryModel(model)
@@ -29,7 +30,7 @@ export function AppSidebar() {
 
   const handleClear = async () => {
     await fetch(`${API_URL}/chat/clear`, { method: "POST" })
-    window.location.reload()
+    clearMessages()
   }
 
   return (

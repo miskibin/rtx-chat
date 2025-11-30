@@ -1,19 +1,41 @@
 import subprocess
 import os
+import sys
+import uuid
+from pathlib import Path
 from langchain.tools import tool
+
+ARTIFACTS_DIR = Path("artifacts")
+ARTIFACTS_DIR.mkdir(exist_ok=True)
 
 @tool
 def run_python_code(code: str) -> str:
-    """Execute Python code and return the output. Use for calculations, data processing, etc."""
-    result = subprocess.run(
-        ["python", "-c", code],
-        capture_output=True,
-        text=True,
-        timeout=30
-    )
-    if result.returncode != 0:
-        return f"Error: {result.stderr}"
-    return result.stdout or "Code executed successfully (no output)"
+    """Execute Python code and return the output. Use for calculations, data processing, plotting charts. 
+    When creating charts with matplotlib, save them using plt.savefig('chart.png') and they will be displayed to user."""
+    artifact_id = str(uuid.uuid4())[:8]
+    work_dir = ARTIFACTS_DIR / artifact_id
+    work_dir.mkdir(exist_ok=True)
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=work_dir
+        )
+        output = result.stdout or ""
+        if result.returncode != 0:
+            output = f"Error: {result.stderr}"
+    except subprocess.TimeoutExpired:
+        return "Error: Code execution timed out after 60 seconds. Try simplifying the code or reducing iterations."
+    
+    images = list(work_dir.glob("*.png")) + list(work_dir.glob("*.jpg")) + list(work_dir.glob("*.svg"))
+    if images:
+        image_paths = [f"http://localhost:8000/artifacts/{artifact_id}/{img.name}" for img in images]
+        output += f"\n[ARTIFACTS:{','.join(image_paths)}]"
+    
+    return output or "Code executed successfully (no output)"
 
 @tool
 def read_file(path: str) -> str:
@@ -34,12 +56,6 @@ def list_directory(path: str = ".") -> str:
     items = os.listdir(path)
     return "\n".join(items)
 
-@tool
-def calculator(expression: str) -> str:
-    """Evaluate a mathematical expression. Use Python syntax (e.g., '2**10', 'math.sqrt(16)')."""
-    import math
-    result = eval(expression, {"__builtins__": {}, "math": math})
-    return str(result)
 
 def get_tools():
-    return [run_python_code, read_file, write_file, list_directory, calculator]
+    return [run_python_code, read_file, write_file, list_directory]
