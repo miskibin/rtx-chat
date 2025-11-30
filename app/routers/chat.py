@@ -21,10 +21,6 @@ async def chat_stream(request: ChatRequest):
                     yield {"data": json.dumps({"memory": "search", "status": "started", "query": chunk["query"]})}
                 elif chunk["type"] == "memory_search_end":
                     yield {"data": json.dumps({"memory": "search", "status": "completed", "memories": chunk["memories"]})}
-                elif chunk["type"] == "memory_save_start":
-                    yield {"data": json.dumps({"memory": "save", "status": "started"})}
-                elif chunk["type"] == "memory_save_end":
-                    yield {"data": json.dumps({"memory": "save", "status": "completed", "memories": chunk["memories"]})}
                 elif chunk["type"] == "thinking":
                     yield {"data": json.dumps({"thinking": chunk["content"]})}
                 elif chunk["type"] == "content":
@@ -49,3 +45,13 @@ async def clear_chat():
     logger.info("Clearing conversation")
     conversation.clear()
     return {"status": "cleared"}
+
+@router.get("/chat/settings")
+async def get_settings():
+    return {"memory_model": conversation.memory_model}
+
+@router.post("/chat/settings")
+async def update_settings(memory_model: str | None = None):
+    if memory_model:
+        conversation.set_memory_model(memory_model)
+    return {"memory_model": conversation.memory_model}

@@ -1,5 +1,6 @@
 from typing import Literal
 from datetime import datetime
+import asyncio
 from langchain_ollama import ChatOllama
 from langchain.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -10,6 +11,7 @@ from mem0 import Memory
 from app.tools import get_tools
 
 USER_ID = "default_user"
+DEFAULT_MEMORY_MODEL = "qwen3:1.7b"
 
 def create_memory(model_name: str) -> Memory:
     logger.info(f"Creating mem0 memory with model: {model_name}")
@@ -85,8 +87,10 @@ class ConversationManager:
         self.messages: list = []
         self.agent = None
         self.model_name = "qwen3:4b"
+        self.memory_model = DEFAULT_MEMORY_MODEL
         self.capabilities: list[str] = []
         self.memory: Memory | None = None
+        self._pending_memory_task: asyncio.Task | None = None
 
     def set_model(self, model_name: str):
         if model_name != self.model_name:
@@ -95,8 +99,13 @@ class ConversationManager:
             self.capabilities = get_model_capabilities(model_name)
             logger.info(f"Model capabilities: {self.capabilities}")
             self.agent = None
-            self.memory = create_memory(model_name)
-        elif self.memory is None:
+        if self.memory is None:
+            self.memory = create_memory(self.memory_model)
+
+    def set_memory_model(self, model_name: str):
+        if model_name != self.memory_model:
+            logger.info(f"Switching memory model: {self.memory_model} -> {model_name}")
+            self.memory_model = model_name
             self.memory = create_memory(model_name)
 
     def get_agent(self):
@@ -133,6 +142,13 @@ class ConversationManager:
         saved = [r.get("memory", "") for r in result.get("results", []) if r.get("event") in ["ADD", "UPDATE"]]
         logger.info(f"Saved memories: {saved}")
         return saved
+
+    def _save_memory_sync(self, user_msg: str, assistant_msg: str):
+        return self.save_memory(user_msg, assistant_msg)
+
+    async def save_memory_async(self, user_msg: str, assistant_msg: str) -> list[str]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._save_memory_sync, user_msg, assistant_msg)
 
     async def stream_response(self, user_input: str):
         yield {"type": "memory_search_start", "query": user_input[:100]}
@@ -187,9 +203,14 @@ class ConversationManager:
         if full_thinking:
             logger.info(f"Total thinking content: {len(full_thinking)} chars")
 
-        yield {"type": "memory_save_start"}
-        saved_memories = self.save_memory(user_input, full_response)
-        yield {"type": "memory_save_end", "memories": saved_memories}
+        self._pending_memory_task = asyncio.create_task(self.save_memory_async(user_input, full_response))
+
+    async def get_pending_memory_result(self) -> list[str]:
+        if self._pending_memory_task:
+            result = await self._pending_memory_task
+            self._pending_memory_task = None
+            return result
+        return []
 
     def clear(self):
         logger.info(f"Clearing {len(self.messages)} messages")
