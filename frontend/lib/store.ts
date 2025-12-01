@@ -1,12 +1,18 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
-type ToolCall = { name: string; status: "started" | "completed"; input?: Record<string, unknown>; output?: string; artifacts?: string[] }
-type MemoryOp = { type: "search"; status: "started" | "completed"; query?: string; memories?: string[] }
+type ToolCall = { name: string; status: "started" | "completed"; input?: Record<string, unknown>; output?: string; artifacts?: string[]; id?: string }
+type MemorySearchOp = { type: "search"; status: "started" | "completed"; query?: string; memories?: string[] }
+type MemoryOp = MemorySearchOp
 type ThinkingBlock = { id: string; content: string; isStreaming: boolean }
 type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
 type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean }
+
+type Settings = {
+  maxToolRuns: number
+  enabledTools: string[]
+}
 
 type ChatStore = {
   messages: MessageType[]
@@ -14,18 +20,20 @@ type ChatStore = {
   status: "ready" | "streaming"
   models: Model[]
   selectedModel: string
-  memoryModel: string
   currentThinkingId: string | null
   editingMessageId: string | null
+  psychMode: boolean
+  settings: Settings
   setMessages: (fn: (msgs: MessageType[]) => MessageType[]) => void
   addMessage: (msg: MessageType) => void
   setInput: (input: string) => void
   setStatus: (status: "ready" | "streaming") => void
   setModels: (models: Model[]) => void
   setSelectedModel: (model: string) => void
-  setMemoryModel: (model: string) => void
   setCurrentThinkingId: (id: string | null) => void
   setEditingMessageId: (id: string | null) => void
+  setPsychMode: (mode: boolean) => void
+  setSettings: (settings: Partial<Settings>) => void
   clearMessages: () => void
 }
 
@@ -37,18 +45,20 @@ export const useChatStore = create<ChatStore>()(
       status: "ready",
       models: [],
       selectedModel: "qwen3:4b",
-      memoryModel: "qwen3:1.7b",
       currentThinkingId: null,
       editingMessageId: null,
+      psychMode: false,
+      settings: { maxToolRuns: 10, enabledTools: [] },
       setMessages: (fn) => set((s) => ({ messages: fn(s.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setInput: (input) => set({ input }),
       setStatus: (status) => set({ status }),
       setModels: (models) => set({ models }),
       setSelectedModel: (selectedModel) => set({ selectedModel }),
-      setMemoryModel: (memoryModel) => set({ memoryModel }),
       setCurrentThinkingId: (currentThinkingId) => set({ currentThinkingId }),
       setEditingMessageId: (editingMessageId) => set({ editingMessageId }),
+      setPsychMode: (psychMode) => set({ psychMode }),
+      setSettings: (settings) => set((s) => ({ settings: { ...s.settings, ...settings } })),
       clearMessages: () => set({ messages: [] }),
     }),
     {
@@ -56,10 +66,11 @@ export const useChatStore = create<ChatStore>()(
       partialize: (state) => ({
         messages: state.messages,
         selectedModel: state.selectedModel,
-        memoryModel: state.memoryModel,
+        psychMode: state.psychMode,
+        settings: state.settings,
       }),
     }
   )
 )
 
-export type { ToolCall, MemoryOp, ThinkingBlock, MessageType, MessageBranch, Model }
+export type { ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, Model }

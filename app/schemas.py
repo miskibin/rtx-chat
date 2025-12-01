@@ -3,6 +3,9 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
     message: str
     model: str = "qwen3:4b"
+    psychological_mode: bool = False
+    max_tool_runs: int = 10
+    enabled_tools: list[str] | None = None
 
 class ChatResponse(BaseModel):
     content: str

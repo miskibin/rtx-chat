@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 import json
 import re
+import uuid
 from loguru import logger
 
 from app.schemas import ChatRequest
@@ -18,17 +19,19 @@ def parse_artifacts(output: str) -> tuple[str, list[str]]:
     return output, []
 
 def strip_memories_line(content: str) -> str:
-    return re.sub(r'\n?MEMORIES:\s*\[.*?\]', '', content, flags=re.DOTALL).strip()
+    content = re.sub(r'\n?MEMORIES:\s*(?:```json)?\s*\[[\s\S]*?\](?:```)?', '', content, flags=re.DOTALL)
+    return content.strip()
 
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    logger.info(f"Chat request: model={request.model}, message={request.message[:50]}...")
+    logger.info(f"Chat request: model={request.model}, message={request.message[:50]}..., psych_mode={request.psychological_mode}, max_tools={request.max_tool_runs}")
     conversation.set_model(request.model)
+    conversation.set_settings(request.max_tool_runs, request.enabled_tools)
     
     async def event_generator():
         full_content = ""
         try:
-            async for chunk in conversation.stream_response(request.message):
+            async for chunk in conversation.stream_response(request.message, request.psychological_mode):
                 if chunk["type"] == "memory_search_start":
                     yield {"data": json.dumps({"memory": "search", "status": "started", "query": chunk["query"]})}
                 elif chunk["type"] == "memory_search_end":
@@ -41,13 +44,15 @@ async def chat_stream(request: ChatRequest):
                     if clean_chunk:
                         yield {"data": json.dumps({"content": chunk["content"]})}
                 elif chunk["type"] == "tool_start":
-                    logger.info(f"Tool started: {chunk['name']}")
-                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "started", "input": chunk.get("input", {})})}
+                    tool_id = chunk.get("run_id", str(uuid.uuid4())[:8])
+                    logger.info(f"Tool started: {chunk['name']} (id: {tool_id})")
+                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "started", "input": chunk.get("input", {}), "tool_id": tool_id})}
                 elif chunk["type"] == "tool_end":
-                    logger.info(f"Tool completed: {chunk['name']}")
+                    tool_id = chunk.get("run_id", "")
+                    logger.info(f"Tool completed: {chunk['name']} (id: {tool_id})")
                     output = chunk["output"]
                     clean_output, artifacts = parse_artifacts(output)
-                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "output": clean_output, "artifacts": artifacts})}
+                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "output": clean_output, "artifacts": artifacts, "tool_id": tool_id})}
                 elif chunk["type"] == "memories_saved":
                     logger.info(f"Memories saved: {chunk['memories']}")
                     yield {"data": json.dumps({"memories_saved": chunk["memories"]})}
@@ -67,13 +72,3 @@ async def clear_chat():
     logger.info("Clearing conversation")
     conversation.clear()
     return {"status": "cleared"}
-
-@router.get("/chat/settings")
-async def get_settings():
-    return {"memory_model": conversation.memory_model}
-
-@router.post("/chat/settings")
-async def update_settings(memory_model: str | None = None):
-    if memory_model:
-        conversation.set_memory_model(memory_model)
-    return {"memory_model": conversation.memory_model}

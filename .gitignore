@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+/memory_db/*
+/artifacts/*
+memory_db/
+artifacts/
+*.db
