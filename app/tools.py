@@ -57,54 +57,58 @@ def list_directory(path: str = ".") -> str:
     return "\n".join(items)
 
 
-from mem0 import Memory
 from loguru import logger
+import chromadb
+from langchain_ollama import OllamaEmbeddings
 
-_memory_instance = None
+_chroma_client = None
+_collection = None
+_embeddings = None
 
-def _get_memory():
-    global _memory_instance
-    if _memory_instance is None:
-        config = {
-            "llm": {"provider": "ollama", "config": {"model": "qwen3:1.7b", "temperature": 0, "max_tokens": 2000}},
-            "embedder": {"provider": "ollama", "config": {"model": "embeddinggemma"}},
-            "vector_store": {"provider": "chroma", "config": {"collection_name": "ollama_ui_memory", "path": "./memory_db"}}
-        }
-        _memory_instance = Memory.from_config(config)
-    return _memory_instance
+def _get_collection():
+    global _chroma_client, _collection, _embeddings
+    if _collection is None:
+        _chroma_client = chromadb.PersistentClient(path="./memory_db_direct")
+        _collection = _chroma_client.get_or_create_collection("memories")
+        _embeddings = OllamaEmbeddings(model="embeddinggemma")
+    return _collection, _embeddings
 
 @tool
 def save_memory(memory_text: str, memory_type: str = "general") -> str:
-    """Save a focused fact about the user. Keep under 250 chars. One main fact per call.
+    """Save NEW information about the user. If similar memory exists, you'll get its ID to update instead.
     
     Args:
-        memory_text: Focused fact (under 250 chars). One main event/fact per call.
-        memory_type: One of: general, event, belief, preference, goal, challenge, emotion
+        memory_text: Focused fact (under 250 chars). One main fact per call.
+        memory_type: One of: general, event, belief, preference (chat interaction style), goal, challenge, emotion
     
     Returns:
-        Confirmation of saved memory.
+        Success message OR duplicate warning with ID to use with update_memory.
     """
     if len(memory_text) > 300:
         logger.warning(f"Memory too long ({len(memory_text)} chars), truncating: {memory_text[:50]}...")
         memory_text = memory_text[:300]
     
-    mem = _get_memory()
-    existing = mem.search(memory_text[:50], user_id="default_user", limit=3)
-    if existing and existing.get("results"):
-        for r in existing["results"]:
-            if memory_text[:40].lower() in r["memory"].lower():
-                logger.info(f"Duplicate memory skipped: {memory_text[:50]}")
-                return f"Memory already exists (id: {r['id']})"
+    collection, embeddings = _get_collection()
+    
+    embedding = embeddings.embed_query(memory_text)
+    existing = collection.query(query_embeddings=[embedding], n_results=3)
+    if existing and existing.get("documents") and existing["documents"][0]:
+        for i, doc in enumerate(existing["documents"][0]):
+            distance = existing["distances"][0][i] if existing.get("distances") else 1.0
+            if distance < 0.3:
+                existing_id = existing["ids"][0][i]
+                logger.info(f"Duplicate memory found (distance={distance:.2f}): {memory_text[:50]}")
+                return f"DUPLICATE: Memory already exists with id={existing_id}. Use update_memory('{existing_id}', 'new text') to update it. Existing: {doc[:80]}"
     
     full_text = f"[{memory_type}] {memory_text}" if memory_type != "general" else memory_text
-    result = mem.add(full_text, user_id="default_user", infer=False)
+    mem_id = str(uuid.uuid4())[:8]
+    collection.add(
+        ids=[mem_id],
+        documents=[full_text],
+        embeddings=[embedding],
+        metadatas=[{"type": memory_type, "user_id": "default_user"}]
+    )
     logger.info(f"Memory saved ({memory_type}): {memory_text[:100]}")
-    mem_id = ""
-    if result and "results" in result:
-        for r in result["results"]:
-            if r.get("event") == "ADD":
-                mem_id = r.get("id", "")
-                break
     return f"Memory saved (id: {mem_id}): {memory_text[:50]}..."
 
 @tool  
@@ -118,8 +122,9 @@ def update_memory(memory_id: str, new_text: str) -> str:
     Returns:
         Confirmation of updated memory.
     """
-    mem = _get_memory()
-    mem.update(memory_id, new_text)
+    collection, embeddings = _get_collection()
+    embedding = embeddings.embed_query(new_text)
+    collection.update(ids=[memory_id], documents=[new_text], embeddings=[embedding])
     logger.info(f"Memory updated ({memory_id}): {new_text[:100]}")
     return f"Memory updated: {new_text[:50]}..."
 

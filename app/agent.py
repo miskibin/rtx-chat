@@ -1,63 +1,78 @@
 from typing import Literal
 from datetime import datetime
-import asyncio
-from langchain_ollama import ChatOllama
+from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from loguru import logger
-from mem0 import Memory
+import chromadb
 
 from app.tools import get_tools, get_conversation_summary, set_conversation_summary
 
-USER_ID = "default_user"
-DEFAULT_MEMORY_MODEL = "qwen3:1.7b"
+_chroma_client = None
+_collection = None
+_embeddings = None
 
-def create_memory(model_name: str) -> Memory:
-    logger.info(f"Creating mem0 memory with model: {model_name}")
-    config = {
-        "llm": {"provider": "ollama", "config": {"model": model_name, "temperature": 0, "max_tokens": 2000}},
-        "embedder": {"provider": "ollama", "config": {"model": "embeddinggemma"}},
-        "vector_store": {"provider": "chroma", "config": {"collection_name": "ollama_ui_memory", "path": "./memory_db"}}
-    }
-    return Memory.from_config(config)
+def _get_memory_collection():
+    global _chroma_client, _collection, _embeddings
+    if _collection is None:
+        _chroma_client = chromadb.PersistentClient(path="./memory_db_direct")
+        _collection = _chroma_client.get_or_create_collection("memories")
+        _embeddings = OllamaEmbeddings(model="embeddinggemma")
+    return _collection, _embeddings
 
-MEMORY_INSTRUCTION = """Use the save_memory tool to remember important user information.
-Use update_memory tool to update existing memories when you have their ID.
-Save memories for: personal facts, preferences, important events, goals, challenges."""
+def get_user_preferences() -> list[str]:
+    collection, _ = _get_memory_collection()
+    results = collection.get(where={"type": "preference"})
+    preferences = []
+    if results and results.get("ids"):
+        for i, _ in enumerate(results["ids"]):
+            doc = results["documents"][i]
+            clean = doc.replace("[preference]", "").strip()
+            preferences.append(clean)
+    return preferences
 
-PSYCH_MEMORY_INSTRUCTION = """Use the save_memory tool to remember therapeutic information about the user.
+MEMORY_INSTRUCTION = """Use save_memory for NEW information, update_memory to MODIFY existing.
 
-MEMORY RULES:
-1. Each memory should be focused - ONE main fact/event per save_memory call
-2. Keep memories under 250 characters
-3. ALWAYS include date (use current date if not specified)
-4. If user shares multiple distinct facts, make separate save_memory calls
-5. Check existing memories first - do NOT save duplicates
+IMPORTANT: 
+- If save_memory returns "DUPLICATE" with an ID, use update_memory with that ID
+- Do NOT keep calling save_memory if it returns DUPLICATE
+- When user asks to update/correct something, use update_memory with the ID from existing memories"""
 
-Memory types:
-- "event" - life event (MUST include date, what happened, emotion)
-- "belief" - belief or pattern about self/others
-- "preference" - therapy/communication preference  
-- "goal" - goal or aspiration
-- "challenge" - current challenge or stressor
-- "emotion" - emotional state with date and context
+PSYCH_MEMORY_INSTRUCTION = """AUTOMATIC MEMORY SAVING - CRITICAL:
+You MUST call save_memory IMMEDIATELY when user shares ANY of:
+- People names (friends, family, partners)
+- Emotions or feelings
+- Life events (work, relationships, health)
+- Chat interaction preferences (how they want to be addressed, language, style)
+- Goals or challenges
 
-DATE FORMAT: Always start with date like "2025-12-01:" or "Feb 2025:"
+SAVE EACH FACT SEPARATELY - call save_memory multiple times if needed!
+Example: "Oliwka mnie pociesza - to najlepsza dziewczyna" = 2 saves:
+  save_memory("2025-12-01: Oliwka pociesza użytkownika", "emotion")
+  save_memory("2025-12-01: Oliwka to najlepsza dziewczyna jaką zna użytkownik", "belief")
 
-GOOD examples:
-- save_memory("2025-02: Breakup with Alia, 3-year relationship ended due to betrayal", "event")
-- save_memory("Alia: narcissistic, manipulative, presents as religious but hypocritical", "belief")
-- save_memory("2025-11: Alia posted song portraying herself as victim", "event")
-- save_memory("2025-12-01: Feeling overwhelmed and anxious about future", "emotion")
+RULES:
+1. ONE atomic fact per save_memory (max 200 chars)
+2. Always start with date: "2025-12-01:"
+3. If DUPLICATE returned → use update_memory with that ID
+4. NEVER merge multiple facts into one memory
 
-NEVER write memory notes in your response text.
+Memory types: 
+- event (things that happened)
+- belief (opinions, views)
+- preference (ONLY for chat style: language, formality, how to respond)
+- goal (what user wants to achieve)
+- challenge (problems user faces)
+- emotion (feelings)
 
-CONVERSATION SUMMARY:
-When conversation gets long (15+ messages), use create_summary to compress history."""
+WORKFLOW: First save memories, THEN respond to user.
+NEVER mention saving in your response."""
 
 SYSTEM_PROMPT = f"""You are a helpful AI assistant.
 Current date and time: {{datetime}}
+
+{{user_preferences}}
 
 {{memories}}
 
@@ -67,6 +82,8 @@ Be concise and helpful.
 
 SYSTEM_PROMPT_WITH_TOOLS = f"""You are a helpful AI assistant with access to tools.
 Current date and time: {{datetime}}
+
+{{user_preferences}}
 
 {{memories}}
 
@@ -78,28 +95,20 @@ PSYCH_SYSTEM_PROMPT = f"""You are a compassionate psychological support assistan
 
 Current date and time: {{datetime}}
 
+{{user_preferences}}
+
 {{memories}}
 
 Guidelines:
 - Be warm, empathetic, and non-judgmental
 - Ask thoughtful questions to understand deeper
 - Validate emotions before offering perspectives
-- Use therapeutic techniques (CBT, ACT, mindfulness) when appropriate
 - Remember and reference past conversations and patterns
-- Help identify recurring themes and growth opportunities
-- Never diagnose or replace professional therapy
-- Respect boundaries and pace of the user
 
-When responding:
-1. Acknowledge feelings first
-2. Reflect back what you hear
-3. Offer gentle exploration questions
-4. Suggest coping strategies when appropriate
-5. Celebrate progress and wins
-
-IMPORTANT: You MUST use save_memory tool when user shares emotional content, life events, or personal information.
-After using the tool, respond naturally without mentioning that you saved anything.
-NEVER print memory notes like "[type]:", "Krótka notatka pamięciowa", or "(Zapisane w pamięci)" in your text response.
+CRITICAL - MEMORY SAVING:
+Before responding, you MUST save any new information the user shares.
+Extract EACH separate fact and save it individually.
+Do this FIRST, then write your response.
 
 {PSYCH_MEMORY_INSTRUCTION}"""
 
@@ -107,30 +116,20 @@ PSYCH_SYSTEM_PROMPT_WITH_TOOLS = f"""You are a compassionate psychological suppo
 
 Current date and time: {{datetime}}
 
+{{user_preferences}}
+
 {{memories}}
 
 Guidelines:
 - Be warm, empathetic, and non-judgmental
 - Ask thoughtful questions to understand deeper
 - Validate emotions before offering perspectives
-- Use therapeutic techniques (CBT, ACT, mindfulness) when appropriate
 - Remember and reference past conversations and patterns
-- Help identify recurring themes and growth opportunities
-- Never diagnose or replace professional therapy
-- Respect boundaries and pace of the user
 
-When responding:
-1. Acknowledge feelings first
-2. Reflect back what you hear
-3. Offer gentle exploration questions
-4. Suggest coping strategies when appropriate
-5. Celebrate progress and wins
-
-Use tools when needed to help the user.
-
-IMPORTANT: You MUST use save_memory tool when user shares emotional content, life events, or personal information.
-After using the tool, respond naturally without mentioning that you saved anything.
-NEVER print memory notes like "[type]:", "Krótka notatka pamięciowa", or "(Zapisane w pamięci)" in your text response.
+CRITICAL - MEMORY SAVING:
+Before responding, you MUST save any new information the user shares.
+Extract EACH separate fact and save it individually.
+Do this FIRST, then write your response.
 
 {PSYCH_MEMORY_INSTRUCTION}"""
 
@@ -187,7 +186,6 @@ class ConversationManager:
         self.agent = None
         self.model_name = "qwen3:4b"
         self.capabilities: list[str] = []
-        self.memory: Memory | None = None
         self.max_tool_runs = 10
         self.enabled_tools: list[str] | None = None
 
@@ -198,8 +196,6 @@ class ConversationManager:
             self.capabilities = get_model_capabilities(model_name)
             logger.info(f"Model capabilities: {self.capabilities}")
             self.agent = None
-        if self.memory is None:
-            self.memory = create_memory(DEFAULT_MEMORY_MODEL)
 
     def set_settings(self, max_tool_runs: int = 10, enabled_tools: list[str] | None = None):
         if max_tool_runs != self.max_tool_runs or enabled_tools != self.enabled_tools:
@@ -224,39 +220,56 @@ class ConversationManager:
 
     def get_memories(self, query: str) -> tuple[str, list[str]]:
         logger.debug(f"Searching memories for: {query[:50]}...")
-        results = self.memory.search(query, user_id=USER_ID, limit=5)
-        logger.debug(f"Memory search results: {results}")
-        if not results or not results.get("results"):
+        collection, embeddings = _get_memory_collection()
+        embedding = embeddings.embed_query(query)
+        results = collection.query(query_embeddings=[embedding], n_results=5)
+        
+        if not results or not results.get("documents") or not results["documents"][0]:
             logger.info("No relevant memories found")
             return "", []
-        memories_list = [f"{r['memory']}" for r in results["results"]]
-        memories_with_ids = [f"[id:{r['id']}] {r['memory']}" for r in results["results"]]
+        
+        memories_list = []
+        memories_with_ids = []
+        for i, doc in enumerate(results["documents"][0]):
+            mem_id = results["ids"][0][i]
+            memories_list.append(doc)
+            memories_with_ids.append(f"[id:{mem_id}] {doc}")
+        
         memories_text = "\n".join([f"- {m}" for m in memories_with_ids])
         logger.info(f"Found {len(memories_list)} memories:\n{memories_text}")
         return f"Existing memories (use id to update):\n{memories_text}", memories_list
 
-    async def stream_response(self, user_input: str, psychological_mode: bool = False):
+    async def stream_response(self, user_input: str, system_prompt: str = "psychological"):
         yield {"type": "memory_search_start", "query": user_input[:100]}
         memories_text, memories_list = self.get_memories(user_input)
         yield {"type": "memory_search_end", "memories": memories_list}
         
+        preferences = get_user_preferences()
+        preferences_text = ""
+        if preferences:
+            preferences_text = "User preferences for this chat:\n" + "\n".join([f"- {p}" for p in preferences])
+            logger.info(f"Loaded {len(preferences)} user preferences")
+        
         use_tools = "tools" in self.capabilities
-        logger.info(f"Capabilities: {self.capabilities}, use_tools={use_tools}, psych_mode={psychological_mode}")
+        logger.info(f"Capabilities: {self.capabilities}, use_tools={use_tools}, system_prompt={system_prompt}")
+        
+        if system_prompt == "psychological":
+            prompt = PSYCH_SYSTEM_PROMPT_WITH_TOOLS if use_tools else PSYCH_SYSTEM_PROMPT
+        else:
+            prompt = SYSTEM_PROMPT_WITH_TOOLS if use_tools else SYSTEM_PROMPT
+        
+        system_msg = SystemMessage(content=prompt.format(
+            datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            user_preferences=preferences_text,
+            memories=memories_text
+        ))
         
         if not self.messages:
-            if psychological_mode:
-                prompt = PSYCH_SYSTEM_PROMPT_WITH_TOOLS if use_tools else PSYCH_SYSTEM_PROMPT
-            else:
-                prompt = SYSTEM_PROMPT_WITH_TOOLS if use_tools else SYSTEM_PROMPT
-            system_msg = SystemMessage(content=prompt.format(
-                datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                memories=memories_text
-            ))
             self.messages.append(system_msg)
-            logger.debug(f"System prompt: {system_msg.content[:200]}...")
-        elif memories_text:
-            self.messages[0] = SystemMessage(content=self.messages[0].content.split("Relevant memories")[0].strip() + "\n\n" + memories_text)
-            logger.debug(f"Updated system prompt with memories")
+        else:
+            self.messages[0] = system_msg
+        
+        logger.debug(f"System prompt: {system_msg.content[:200]}...")
             
         self.add_user_message(user_input)
         
@@ -277,10 +290,23 @@ class ConversationManager:
         full_thinking = ""
         config = {"recursion_limit": self.max_tool_runs * 2 + 1}
         
+        pending_tool_calls = {}
+        all_messages = list(self.messages)
+        
         async for event in agent.astream_events({"messages": self.messages}, version="v2", config=config):
             kind = event["event"]
+            name = event.get("name", "")
             if kind == "on_chat_model_stream":
                 chunk = event["data"]["chunk"]
+                if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                    for tc in chunk.tool_call_chunks:
+                        tool_id = tc.get("id")
+                        tool_name = tc.get("name", "")
+                        if tool_id and tool_name and tool_id not in pending_tool_calls:
+                            pending_tool_calls[tool_id] = {"name": tool_name, "args": {}}
+                            logger.info(f"Tool call started (chunk): {tool_name} (id: {tool_id})")
+                            yield {"type": "tool_start", "name": tool_name, "input": {}, "run_id": tool_id}
+                
                 reasoning = chunk.additional_kwargs.get("reasoning_content", "")
                 if reasoning:
                     full_thinking += reasoning
@@ -288,31 +314,40 @@ class ConversationManager:
                 if chunk.content:
                     full_response += chunk.content
                     yield {"type": "content", "content": chunk.content}
-            elif kind == "on_tool_start":
-                tool_input = event.get("data", {}).get("input", {})
-                tool_name = event.get("name", "unknown")
-                run_id = event.get("run_id", "")
-                logger.info(f"Tool invoked: {tool_name} (run_id: {run_id}) with input: {tool_input}")
-                yield {"type": "tool_start", "name": tool_name, "input": tool_input, "run_id": run_id}
-            elif kind == "on_tool_end":
-                tool_name = event.get("name", "unknown")
-                tool_output = str(event.get("data", {}).get("output", ""))
-                run_id = event.get("run_id", "")
-                logger.info(f"Tool result: {tool_name} (run_id: {run_id}) -> {tool_output[:100]}")
-                yield {"type": "tool_end", "name": tool_name, "output": tool_output, "run_id": run_id}
-            elif kind == "on_chain_error":
-                err = str(event.get("data", {}).get("error", "Unknown error"))
-                if "error parsing tool call" in err.lower():
-                    logger.warning(f"Tool parsing error (will retry): {err[:200]}")
-                    yield {"type": "error", "message": "I had trouble formatting that. Let me try again..."}
-                else:
-                    logger.error(f"Chain error: {err}")
+            
+            elif kind == "on_chat_model_end":
+                output = event.get("data", {}).get("output")
+                if output and hasattr(output, "tool_calls") and output.tool_calls:
+                    for tc in output.tool_calls:
+                        tool_id = tc.get("id", str(len(pending_tool_calls)))
+                        tool_name = tc.get("name", "unknown")
+                        tool_args = tc.get("args", {})
+                        if tool_id not in pending_tool_calls:
+                            pending_tool_calls[tool_id] = {"name": tool_name, "args": tool_args}
+                            logger.info(f"Tool call from model_end: {tool_name} (id: {tool_id})")
+                            yield {"type": "tool_start", "name": tool_name, "input": tool_args, "run_id": tool_id}
+                        else:
+                            pending_tool_calls[tool_id]["args"] = tool_args
+            
+            elif kind == "on_chain_end" and name == "tools":
+                output = event.get("data", {}).get("output", {})
+                messages = output.get("messages", [])
+                for msg in messages:
+                    if isinstance(msg, ToolMessage):
+                        tool_id = msg.tool_call_id
+                        tool_name = pending_tool_calls.get(tool_id, {}).get("name", "unknown")
+                        tool_output = str(msg.content)
+                        logger.info(f"Tool result (chain_end): {tool_name} (id: {tool_id}) -> {tool_output[:100]}")
+                        yield {"type": "tool_end", "name": tool_name, "output": tool_output, "run_id": tool_id}
+                        all_messages.append(msg)
+            
+            elif kind == "on_chain_end" and name == "LangGraph":
+                final_output = event.get("data", {}).get("output", {})
+                if "messages" in final_output:
+                    all_messages = final_output["messages"]
         
-        final_state = await agent.ainvoke({"messages": self.messages}, config=config)
-        last_msg = final_state["messages"][-1]
-        if isinstance(last_msg, AIMessage):
-            self.messages = final_state["messages"]
-            logger.info(f"Conversation updated, total={len(self.messages)} messages")
+        self.messages = all_messages
+        logger.info(f"Conversation updated, total={len(self.messages)} messages")
         
         if full_thinking:
             logger.info(f"Total thinking content: {len(full_thinking)} chars")

@@ -9,6 +9,8 @@ type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlo
 type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean }
 
+type SystemPromptType = "normal" | "psychological"
+
 type Settings = {
   maxToolRuns: number
   enabledTools: string[]
@@ -22,7 +24,7 @@ type ChatStore = {
   selectedModel: string
   currentThinkingId: string | null
   editingMessageId: string | null
-  psychMode: boolean
+  systemPrompt: SystemPromptType
   settings: Settings
   setMessages: (fn: (msgs: MessageType[]) => MessageType[]) => void
   addMessage: (msg: MessageType) => void
@@ -32,7 +34,7 @@ type ChatStore = {
   setSelectedModel: (model: string) => void
   setCurrentThinkingId: (id: string | null) => void
   setEditingMessageId: (id: string | null) => void
-  setPsychMode: (mode: boolean) => void
+  setSystemPrompt: (prompt: SystemPromptType) => void
   setSettings: (settings: Partial<Settings>) => void
   clearMessages: () => void
 }
@@ -47,7 +49,7 @@ export const useChatStore = create<ChatStore>()(
       selectedModel: "qwen3:4b",
       currentThinkingId: null,
       editingMessageId: null,
-      psychMode: false,
+      systemPrompt: "psychological",
       settings: { maxToolRuns: 10, enabledTools: [] },
       setMessages: (fn) => set((s) => ({ messages: fn(s.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
@@ -57,7 +59,7 @@ export const useChatStore = create<ChatStore>()(
       setSelectedModel: (selectedModel) => set({ selectedModel }),
       setCurrentThinkingId: (currentThinkingId) => set({ currentThinkingId }),
       setEditingMessageId: (editingMessageId) => set({ editingMessageId }),
-      setPsychMode: (psychMode) => set({ psychMode }),
+      setSystemPrompt: (systemPrompt) => set({ systemPrompt }),
       setSettings: (settings) => set((s) => ({ settings: { ...s.settings, ...settings } })),
       clearMessages: () => set({ messages: [] }),
     }),
@@ -66,11 +68,11 @@ export const useChatStore = create<ChatStore>()(
       partialize: (state) => ({
         messages: state.messages,
         selectedModel: state.selectedModel,
-        psychMode: state.psychMode,
+        systemPrompt: state.systemPrompt,
         settings: state.settings,
       }),
     }
   )
 )
 
-export type { ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, Model }
+export type { ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, Model, SystemPromptType }

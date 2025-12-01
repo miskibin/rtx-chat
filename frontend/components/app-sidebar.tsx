@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import { Sidebar, SidebarContent, SidebarHeader, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import { Trash2Icon, DatabaseIcon, MessageSquareIcon, HeartIcon, SettingsIcon } from "lucide-react"
+import { Trash2Icon, DatabaseIcon, MessageSquareIcon, SettingsIcon } from "lucide-react"
 import { useChatStore } from "@/lib/store"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -36,11 +36,6 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={pathname === "/memories"}>
                   <Link href="/memories"><DatabaseIcon className="size-4" /> Memories</Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/psych-memories"}>
-                  <Link href="/psych-memories"><HeartIcon className="size-4" /> Psych Memories</Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

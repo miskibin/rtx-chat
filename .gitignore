@@ -16,3 +16,4 @@ artifacts/
 *.sqlite3
 .env
 *.env
+memory_db_direct

@@ -24,14 +24,13 @@ def strip_memories_line(content: str) -> str:
 
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    logger.info(f"Chat request: model={request.model}, message={request.message[:50]}..., psych_mode={request.psychological_mode}, max_tools={request.max_tool_runs}")
     conversation.set_model(request.model)
     conversation.set_settings(request.max_tool_runs, request.enabled_tools)
     
     async def event_generator():
         full_content = ""
         try:
-            async for chunk in conversation.stream_response(request.message, request.psychological_mode):
+            async for chunk in conversation.stream_response(request.message, request.system_prompt):
                 if chunk["type"] == "memory_search_start":
                     yield {"data": json.dumps({"memory": "search", "status": "started", "query": chunk["query"]})}
                 elif chunk["type"] == "memory_search_end":

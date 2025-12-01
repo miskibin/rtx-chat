@@ -14,7 +14,7 @@ import { SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
 import { CodeBlock, CodeBlockBody, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader, CodeBlockItem } from "@/components/ui/code-block"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { WrenchIcon, CheckCircleIcon, ClockIcon, BrainIcon, DatabaseIcon, ImageIcon, CopyIcon, RefreshCwIcon, PencilIcon, CheckIcon, XIcon, PlusCircleIcon, RefreshCcwIcon, HeartIcon } from "lucide-react"
+import { WrenchIcon, CheckCircleIcon, ClockIcon, BrainIcon, DatabaseIcon, ImageIcon, CopyIcon, RefreshCwIcon, PencilIcon, CheckIcon, XIcon, PlusCircleIcon, RefreshCcwIcon } from "lucide-react"
 import { useChatStore, type ToolCall, type MemoryOp, type ThinkingBlock, type MessageBranch } from "@/lib/store"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -24,7 +24,7 @@ type StreamItem = { type: "memory"; data: MemoryOp } | { type: "thinking"; data:
 const stripMemoriesLine = (content: string) => content.replace(/\n?MEMORIES:\s*(?:```json)?\s*\[[\s\S]*?\](?:```)?/g, '').trim()
 
 export default function Home() {
-  const { messages, setMessages, input, setInput, status, setStatus, models, setModels, selectedModel, setSelectedModel, currentThinkingId, setCurrentThinkingId, editingMessageId, setEditingMessageId, psychMode, setPsychMode, settings } = useChatStore()
+  const { messages, setMessages, input, setInput, status, setStatus, models, setModels, selectedModel, setSelectedModel, currentThinkingId, setCurrentThinkingId, editingMessageId, setEditingMessageId, systemPrompt, setSystemPrompt, settings } = useChatStore()
   const abortRef = useRef<AbortController | null>(null)
   const thinkingIdRef = useRef<string | null>(null)
   const toolIdCounterRef = useRef(0)
@@ -66,7 +66,7 @@ export default function Home() {
         body: JSON.stringify({ 
           message, 
           model: selectedModel, 
-          psychological_mode: psychMode,
+          system_prompt: systemPrompt,
           max_tool_runs: settings.maxToolRuns,
           enabled_tools: settings.enabledTools.length > 0 ? settings.enabledTools : null
         }),
@@ -131,6 +131,7 @@ export default function Home() {
           setOpenItems(new Set())
           setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: m.content + data.content } : m))
         } else if (data.tool_call) {
+          console.log("Tool event:", data)
           if (thinkingIdRef.current) {
             const currentId = thinkingIdRef.current
             setMessages(prev => prev.map(m => {
@@ -476,16 +477,14 @@ export default function Home() {
             <PromptInputTextarea value={input} onChange={e => setInput(e.target.value)} disabled={status === "streaming"} />
             <PromptInputToolbar>
               <PromptInputTools>
-                <Button 
-                  type="button"
-                  variant={psychMode ? "default" : "outline"} 
-                  size="sm" 
-                  className={`h-7 text-xs gap-1 ${psychMode ? 'bg-pink-500 hover:bg-pink-600' : ''}`}
-                  onClick={() => setPsychMode(!psychMode)}
+                <select
+                  value={systemPrompt}
+                  onChange={e => setSystemPrompt(e.target.value as "normal" | "psychological")}
+                  className="h-7 text-xs px-2 rounded-md border bg-background"
                 >
-                  <HeartIcon className="size-3" />
-                  Psych
-                </Button>
+                  <option value="normal">Normal</option>
+                  <option value="psychological">Psychological</option>
+                </select>
                 <PromptInputModelSelect value={selectedModel} onValueChange={setSelectedModel}>
                   <PromptInputModelSelectTrigger className="w-[180px]">
                     <PromptInputModelSelectValue placeholder="Model" />

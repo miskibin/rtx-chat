@@ -19,9 +19,6 @@ app.include_router(models.router)
 app.include_router(memories.router)
 app.include_router(artifacts.router)
 
-@app.on_event("startup")
-async def startup():
-    logger.info("Starting Ollama Chat API")
 
 @app.get("/health")
 async def health():
