@@ -31,21 +31,25 @@ PSYCH_MEMORY_INSTRUCTION = """Use the save_memory tool to remember therapeutic i
 MEMORY RULES:
 1. Each memory should be focused - ONE main fact/event per save_memory call
 2. Keep memories under 250 characters
-3. If user shares multiple distinct facts, make separate save_memory calls
-4. Check existing memories first - do NOT save duplicates
+3. ALWAYS include date (use current date if not specified)
+4. If user shares multiple distinct facts, make separate save_memory calls
+5. Check existing memories first - do NOT save duplicates
 
 Memory types:
-- "event" - life event (date, what happened, key emotion)
+- "event" - life event (MUST include date, what happened, emotion)
 - "belief" - belief or pattern about self/others
 - "preference" - therapy/communication preference  
 - "goal" - goal or aspiration
 - "challenge" - current challenge or stressor
-- "emotion" - emotional state and context
+- "emotion" - emotional state with date and context
+
+DATE FORMAT: Always start with date like "2025-12-01:" or "Feb 2025:"
 
 GOOD examples:
-- save_memory("Breakup with Alia Feb 2025, 3-year relationship ended due to betrayal", "event")
+- save_memory("2025-02: Breakup with Alia, 3-year relationship ended due to betrayal", "event")
 - save_memory("Alia: narcissistic, manipulative, presents as religious but hypocritical", "belief")
-- save_memory("Nov 2025: Alia posted song portraying herself as victim at user's expense", "event")
+- save_memory("2025-11: Alia posted song portraying herself as victim", "event")
+- save_memory("2025-12-01: Feeling overwhelmed and anxious about future", "emotion")
 
 NEVER write memory notes in your response text.
 

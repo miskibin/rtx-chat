@@ -17,26 +17,20 @@ const parseMemoryType = (mem: string): string => {
   return match ? match[1] : "general"
 }
 
+const VALID_EMOTIONS = new Set([
+  "anxiety", "fear", "sadness", "anger", "joy", "happiness", "frustration", "overwhelm", "overwhelmed",
+  "stress", "stressed", "loneliness", "lonely", "hope", "hopeful", "excitement", "excited", "guilt", "guilty",
+  "shame", "relief", "relieved", "love", "hate", "jealousy", "jealous", "envy", "pride", "proud",
+  "disgust", "surprise", "confused", "confusion", "nervous", "worried", "worry", "panic", "despair",
+  "grief", "sorrow", "resentment", "betrayed", "betrayal", "hurt", "pain", "emptiness", "empty",
+  "numb", "depressed", "depression", "anxious", "scared", "terrified", "hopeless", "helpless",
+  "insecure", "insecurity", "vulnerable", "ashamed", "regret", "disappointment", "disappointed",
+  "irritated", "annoyed", "bitter", "content", "peaceful", "calm", "grateful", "thankful"
+])
+
 const extractEmotions = (mem: string): string[] => {
-  const emotionPatterns = [
-    /emotions?[:.]?\s*([^.]+?)(?:\.|Triggered|Context|$)/gi,
-    /(?:feeling|felt|feels)\s+(\w+)/gi,
-    /(?:anxiety|fear|sadness|anger|joy|happiness|frustration|overwhelm|stress|loneliness|hope|excitement|guilt|shame|relief)/gi
-  ]
-  const emotions = new Set<string>()
-  emotionPatterns.forEach(pattern => {
-    const matches = mem.matchAll(pattern)
-    for (const m of matches) {
-      const text = m[1] || m[0]
-      text.split(/[,\s]+/).forEach(e => {
-        const clean = e.toLowerCase().trim()
-        if (clean.length > 2 && !["and", "the", "was", "with"].includes(clean)) {
-          emotions.add(clean)
-        }
-      })
-    }
-  })
-  return Array.from(emotions)
+  const words = mem.toLowerCase().split(/[\s,.:;!?()[\]]+/)
+  return words.filter(w => VALID_EMOTIONS.has(w))
 }
 
 const getTypeStyle = (type: string) => {
@@ -70,8 +64,13 @@ const formatMemoryContent = (mem: string) => {
   
   const parts: { label: string; value: string }[] = []
   
-  const dateMatch = withoutType.match(/(?:Date|on|dated?)[:.]?\s*(\d{4}-\d{2}-\d{2})/i)
-  if (dateMatch) parts.push({ label: "Date", value: dateMatch[1] })
+  // Match dates at start like "2025-12-01:" or "2025-02:" or "Feb 2025:"
+  const dateMatch = withoutType.match(/^(\d{4}-\d{2}(?:-\d{2})?)[:\s]|^([A-Z][a-z]{2}\s+\d{4})[:\s]/i)
+  if (dateMatch) parts.push({ label: "Date", value: dateMatch[1] || dateMatch[2] })
+  
+  // Also match inline dates
+  const inlineDateMatch = withoutType.match(/(?:Date|on|dated?)[:.]?\s*(\d{4}-\d{2}-\d{2})/i)
+  if (inlineDateMatch && !dateMatch) parts.push({ label: "Date", value: inlineDateMatch[1] })
   
   const emotionsMatch = withoutType.match(/Emotions?[:.]?\s*([^.]+?)(?:\.|Triggered|Context|$)/i)
   if (emotionsMatch) parts.push({ label: "Emotions", value: emotionsMatch[1].trim() })
@@ -83,6 +82,8 @@ const formatMemoryContent = (mem: string) => {
   if (contextMatch) parts.push({ label: "Context", value: contextMatch[1].trim() })
   
   const mainText = withoutType
+    .replace(/^\d{4}-\d{2}(?:-\d{2})?[:\s]/i, "")
+    .replace(/^[A-Z][a-z]{2}\s+\d{4}[:\s]/i, "")
     .replace(/(?:Date|on|dated?)[:.]?\s*\d{4}-\d{2}-\d{2}/gi, "")
     .replace(/Emotions?[:.]?\s*[^.]+/i, "")
     .replace(/Triggered by[:.]?\s*[^.]+/i, "")
