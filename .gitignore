@@ -13,3 +13,6 @@ wheels/
 memory_db/
 artifacts/
 *.db
+*.sqlite3
+.env
+*.env
