@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.122.0",
     "langchain-experimental>=0.4.0",
     "langchain-ollama>=1.0.0",
+    "langchain-openai>=1.1.0",
     "langchain>=1.1.0",
     "langfuse>=3.10.1",
     "langgraph>=1.0.4",

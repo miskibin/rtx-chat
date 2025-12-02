@@ -39,6 +39,17 @@ async def list_models():
             family=family
         ))
         logger.debug(f"Model {name}: tools={supports_tools}, thinking={supports_thinking}, vision={supports_vision}")
+    
+    models.append(ModelInfo(
+        name="grok-4-1-fast-non-reasoning",
+        context_length=128000,
+        supports_tools=True,
+        supports_thinking=False,
+        supports_vision=False,
+        parameters="400B",
+        family="grok"
+    ))
+    
     return ModelsResponse(models=models)
 
 @router.get("/tools")
