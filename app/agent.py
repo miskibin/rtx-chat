@@ -38,15 +38,8 @@ def get_user_preferences() -> list[str]:
     return preferences
 
 
-MEMORY_INSTRUCTION = """Use save_memory for NEW information, update_memory to MODIFY existing.
-
-IMPORTANT: 
-- If save_memory returns "DUPLICATE" with an ID, use update_memory with that ID
-- Do NOT keep calling save_memory if it returns DUPLICATE
-- When user asks to update/correct something, use update_memory with the ID from existing memories"""
-
-PSYCH_MEMORY_INSTRUCTION = """AUTOMATIC MEMORY SAVING - CRITICAL:
-You MUST call save_memory IMMEDIATELY when user shares ANY of:
+MEMORY_INSTRUCTION = """AUTOMATIC MEMORY SAVING:
+Save important user information IMMEDIATELY using save_memory when user shares:
 - People names (friends, family, partners)
 - Emotions or feelings
 - Life events (work, relationships, health)
@@ -54,56 +47,34 @@ You MUST call save_memory IMMEDIATELY when user shares ANY of:
 - Goals or challenges
 
 SAVE EACH FACT SEPARATELY - call save_memory multiple times if needed!
-Example: "Oliwka mnie pociesza - to najlepsza dziewczyna" = 2 saves:
-  save_memory("2025-12-01: Oliwka pociesza użytkownika", "emotion")
-  save_memory("2025-12-01: Oliwka to najlepsza dziewczyna jaką zna użytkownik", "belief")
 
 RULES:
 1. ONE atomic fact per save_memory (max 200 chars)
-2. Always start with date: "2025-12-01:"
-3. If DUPLICATE returned → use update_memory with that ID
+2. Always start with date: "YYYY-MM-DD:"
+3. If save_memory returns "DUPLICATE" with an ID, use update_memory with that ID
 4. NEVER merge multiple facts into one memory
 
-Memory types: 
-- event (things that happened)
-- belief (opinions, views)
-- preference (ONLY for chat style: language, formality, how to respond)
-- goal (what user wants to achieve)
-- challenge (problems user faces)
-- emotion (feelings)
+Memory types: event, belief, preference, goal, challenge, emotion
 
 WORKFLOW: First save memories, THEN respond to user.
 NEVER mention saving in your response."""
 
-SYSTEM_PROMPT = f"""You are a helpful AI assistant.
-Current date and time: {{datetime}}
+NORMAL_PROMPT = """You are a helpful AI assistant.
+Current date and time: {datetime}
 
-{{user_preferences}}
+{user_preferences}
 
-{{memories}}
+{memories}
 
-Be concise and helpful.
+Be concise and helpful."""
 
-{MEMORY_INSTRUCTION}"""
+PSYCH_PROMPT = """You are a compassionate psychological support assistant providing emotional support and helping with personal growth.
 
-SYSTEM_PROMPT_WITH_TOOLS = f"""You are a helpful AI assistant with access to tools.
-Current date and time: {{datetime}}
+Current date and time: {datetime}
 
-{{user_preferences}}
+{user_preferences}
 
-{{memories}}
-
-Use tools when needed to help the user. Be concise and helpful.
-
-{MEMORY_INSTRUCTION}"""
-
-PSYCH_SYSTEM_PROMPT = f"""You are a compassionate psychological support assistant. Your role is to provide emotional support, help process feelings, and assist with personal growth.
-
-Current date and time: {{datetime}}
-
-{{user_preferences}}
-
-{{memories}}
+{memories}
 
 Guidelines:
 - Be warm, empathetic, and non-judgmental
@@ -111,33 +82,7 @@ Guidelines:
 - Validate emotions before offering perspectives
 - Remember and reference past conversations and patterns
 
-CRITICAL - MEMORY SAVING:
-Before responding, you MUST save any new information the user shares.
-Extract EACH separate fact and save it individually.
-Do this FIRST, then write your response.
-
-{PSYCH_MEMORY_INSTRUCTION}"""
-
-PSYCH_SYSTEM_PROMPT_WITH_TOOLS = f"""You are a compassionate psychological support assistant with access to tools. Your role is to provide emotional support, help process feelings, and assist with personal growth.
-
-Current date and time: {{datetime}}
-
-{{user_preferences}}
-
-{{memories}}
-
-Guidelines:
-- Be warm, empathetic, and non-judgmental
-- Ask thoughtful questions to understand deeper
-- Validate emotions before offering perspectives
-- Remember and reference past conversations and patterns
-
-CRITICAL - MEMORY SAVING:
-Before responding, you MUST save any new information the user shares.
-Extract EACH separate fact and save it individually.
-Do this FIRST, then write your response.
-
-{PSYCH_MEMORY_INSTRUCTION}"""
+{memory_instruction}"""
 
 
 def get_model_capabilities(model_name: str) -> list[str]:
@@ -159,7 +104,7 @@ def create_agent(
     enabled_tools: list[str] | None = None,
 ):
     logger.info(
-        f"Creating agent with model: {model_name}, tools={use_tools}, thinking={supports_thinking}, enabled_tools={enabled_tools}"
+        f"Creating agent with model: {model_name}, thinking={supports_thinking}, enabled_tools={enabled_tools}"
     )
     if model_name.startswith("grok"):
         llm = ChatOpenAI(
@@ -171,18 +116,6 @@ def create_agent(
         llm = ChatOllama(
             model=model_name, reasoning=True if supports_thinking else None
         )
-
-    if not use_tools:
-
-        def call_model(state: MessagesState):
-            response = llm.invoke(state["messages"])
-            return {"messages": [response]}
-
-        builder = StateGraph(MessagesState)
-        builder.add_node("model", call_model)
-        builder.add_edge(START, "model")
-        builder.add_edge("model", END)
-        return builder.compile()
 
     all_tools = get_tools()
     tools = (
@@ -245,11 +178,10 @@ class ConversationManager:
 
     def get_agent(self):
         if self.agent is None:
-            use_tools = "tools" in self.capabilities
             supports_thinking = "thinking" in self.capabilities
             self.agent = create_agent(
                 self.model_name,
-                use_tools=use_tools,
+                use_tools=True,
                 supports_thinking=supports_thinking,
                 enabled_tools=self.enabled_tools,
             )
@@ -298,23 +230,16 @@ class ConversationManager:
             )
             logger.info(f"Loaded {len(preferences)} user preferences")
 
-        use_tools = "tools" in self.capabilities
-        logger.info(
-            f"Capabilities: {self.capabilities}, use_tools={use_tools}, system_prompt={system_prompt}"
-        )
+        logger.info(f"Capabilities: {self.capabilities}, system_prompt={system_prompt}")
 
-        if system_prompt == "psychological":
-            prompt = (
-                PSYCH_SYSTEM_PROMPT_WITH_TOOLS if use_tools else PSYCH_SYSTEM_PROMPT
-            )
-        else:
-            prompt = SYSTEM_PROMPT_WITH_TOOLS if use_tools else SYSTEM_PROMPT
-
+        prompt = PSYCH_PROMPT if system_prompt == "psychological" else NORMAL_PROMPT
+        
         system_msg = SystemMessage(
             content=prompt.format(
                 datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 user_preferences=preferences_text,
                 memories=memories_text,
+                memory_instruction=MEMORY_INSTRUCTION if system_prompt == "psychological" else "",
             )
         )
 
