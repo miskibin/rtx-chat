@@ -18,10 +18,6 @@ def parse_artifacts(output: str) -> tuple[str, list[str]]:
         return clean_output, artifacts
     return output, []
 
-def strip_memories_line(content: str) -> str:
-    content = re.sub(r'\n?MEMORIES:\s*(?:```json)?\s*\[[\s\S]*?\](?:```)?', '', content, flags=re.DOTALL)
-    return content.strip()
-
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     conversation.set_model(request.model)
@@ -39,9 +35,7 @@ async def chat_stream(request: ChatRequest):
                     yield {"data": json.dumps({"thinking": chunk["content"]})}
                 elif chunk["type"] == "content":
                     full_content += chunk["content"]
-                    clean_chunk = strip_memories_line(chunk["content"])
-                    if clean_chunk:
-                        yield {"data": json.dumps({"content": chunk["content"]})}
+                    yield {"data": json.dumps({"content": chunk["content"]})}
                 elif chunk["type"] == "tool_start":
                     tool_id = chunk.get("run_id", str(uuid.uuid4())[:8])
                     logger.info(f"Tool started: {chunk['name']} (id: {tool_id})")

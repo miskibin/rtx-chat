@@ -21,8 +21,6 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 type StreamItem = { type: "memory"; data: MemoryOp } | { type: "thinking"; data: ThinkingBlock } | { type: "tool"; data: ToolCall }
 
-const stripMemoriesLine = (content: string) => content.replace(/\n?MEMORIES:\s*(?:```json)?\s*\[[\s\S]*?\](?:```)?/g, '').trim()
-
 export default function Home() {
   const { messages, setMessages, input, setInput, status, setStatus, models, setModels, selectedModel, setSelectedModel, currentThinkingId, setCurrentThinkingId, editingMessageId, setEditingMessageId, systemPrompt, setSystemPrompt, settings } = useChatStore()
   const abortRef = useRef<AbortController | null>(null)
@@ -76,13 +74,18 @@ export default function Home() {
       const reader = res.body?.getReader()
       const decoder = new TextDecoder()
       thinkingIdRef.current = null
+      let buffer = ""
 
       while (reader) {
         const { done, value } = await reader.read()
         if (done) break
-        for (const line of decoder.decode(value).split("\n")) {
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() || ""
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue
           const data = JSON.parse(line.slice(6))
+          if (data.content) console.log("Raw content:", JSON.stringify(data.content))
         if (data.memory === "search") {
           const memKey = `${assistantMsg.id}-mem`
           setOpenItems(prev => new Set(prev).add(memKey))
@@ -423,7 +426,7 @@ export default function Home() {
                           }
                           return null
                         })}
-                        {msg.content ? <Response defaultOrigin="http://localhost:8000">{stripMemoriesLine(msg.content)}</Response> : (!msg.toolCalls?.length && !msg.thinkingBlocks?.length && !msg.memoryOps?.some(op => op.type === "search" && op.status === "started") && <Loader />)}
+                        {msg.content ? <Response defaultOrigin="http://localhost:8000">{msg.content}</Response> : (!msg.toolCalls?.length && !msg.thinkingBlocks?.length && !msg.memoryOps?.some(op => op.type === "search" && op.status === "started") && <Loader />)}
                       </>
                     )}
                   </MessageContent>
