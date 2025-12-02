@@ -23,10 +23,12 @@ def run_python_code(code: str) -> str:
     artifact_id = str(uuid.uuid4())[:8]
     work_dir = ARTIFACTS_DIR / artifact_id
     work_dir.mkdir(exist_ok=True)
+    
+    wrapped_code = f"import matplotlib;matplotlib.use('Agg')\n{code}"
 
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code],
+            [sys.executable, "-c", wrapped_code],
             capture_output=True,
             text=True,
             timeout=60,
