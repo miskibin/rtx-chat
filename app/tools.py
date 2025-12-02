@@ -4,6 +4,8 @@ import sys
 import uuid
 from pathlib import Path
 from langchain.tools import tool
+import asyncio
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 ARTIFACTS_DIR = Path("artifacts")
 ARTIFACTS_DIR.mkdir(exist_ok=True)
@@ -156,5 +158,30 @@ def create_summary(summary: str) -> str:
     logger.info(f"Conversation summary created: {summary[:100]}...")
     return f"Summary saved. Previous messages will be compressed. Summary: {summary[:100]}..."
 
+@tool
+def read_website(url: str) -> str:
+    """Fetch and read content from a website URL. Returns clean markdown content of the webpage.
+    
+    Args:
+        url: The website URL to fetch (e.g., 'https://example.com')
+    
+    Returns:
+        Markdown content of the webpage
+    """
+    async def crawl():
+        browser_config = BrowserConfig(headless=True, java_script_enabled=True)
+        run_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS, page_timeout=30000)
+        
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            result = await crawler.arun(url=url, config=run_config)
+            if result.success:
+                return result.markdown.raw_markdown[:50000]
+            return f"Error fetching {url}: {result.error_message}"
+    
+    try:
+        return asyncio.run(crawl())
+    except Exception as e:
+        return f"Error: {str(e)}"
+
 def get_tools():
-    return [run_python_code, read_file, write_file, list_directory, save_memory, update_memory, create_summary]
+    return [run_python_code, read_file, write_file, list_directory, save_memory, update_memory, create_summary, read_website]

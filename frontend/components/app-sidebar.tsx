@@ -6,6 +6,7 @@ import { Sidebar, SidebarContent, SidebarHeader, SidebarFooter, SidebarGroup, Si
 import { Button } from "@/components/ui/button"
 import { Trash2Icon, DatabaseIcon, MessageSquareIcon, SettingsIcon } from "lucide-react"
 import { useChatStore } from "@/lib/store"
+import { ModeToggle } from "@/components/mode-toggle"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -20,8 +21,9 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4">
+      <SidebarHeader className="p-4 flex flex-row items-center justify-between">
         <h1 className="text-lg font-semibold">Ollama Chat</h1>
+        <ModeToggle />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

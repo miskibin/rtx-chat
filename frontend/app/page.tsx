@@ -36,11 +36,11 @@ export default function Home() {
       const allModels = d.models || []
       setModels(allModels)
       const toolModels = allModels.filter((m: { supports_tools: boolean }) => m.supports_tools)
-      if (toolModels.length > 0 && !toolModels.some((m: { name: string }) => m.name === selectedModel)) {
+      if (toolModels.length > 0 && !selectedModel) {
         setSelectedModel(toolModels[0].name)
       }
     })
-  }, [setModels, setSelectedModel, selectedModel])
+  }, [])
 
   const sendMessage = async (message: string, existingAssistantId?: string) => {
     const assistantMsg = existingAssistantId 
