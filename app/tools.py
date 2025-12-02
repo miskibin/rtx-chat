@@ -94,25 +94,30 @@ def _get_collection():
 
 
 class MemoryType(str, Enum):
-    fact = "fact"
     preference = "preference"
+    fact = "fact"
+    goal = "goal"
     event = "event"
-    emotion = "emotion"
     person = "person"
-    relationship = "relationship"
-    belief = "belief"
 
 
 
 
 class Memory(BaseModel):
+    """Long-term memory storage.
+    
+    Types:
+    - preference: How user wants to interact (language, tone, addressing style)
+    - fact: Stable info about user (job, location, skills, interests)
+    - goal: Aspirations, challenges, projects user is working on
+    - event: Significant life moments or experiences
+    - person: Relationships and people in user's life
+    """
     type: MemoryType
-    summary: str = Field(max_length=200)
+    summary: str = Field(max_length=150)
     timestamp: str = Field(
         default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M")
     )
-    entities: list[str] = Field(default_factory=list)
-    importance: float = Field(0.5, ge=0, le=1)
 
 @tool
 def save_memory(memory: Memory) -> str:
