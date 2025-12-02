@@ -408,10 +408,10 @@ export default function Home() {
                                   {(() => {
                                     const code = tool.input?.code
                                     if (typeof code === "string") return <TaskItem>{renderCodeInput(code)}</TaskItem>
-                                    if (tool.input) return <TaskItem><code className="text-xs bg-muted px-1 rounded whitespace-pre-wrap">{JSON.stringify(tool.input, null, 2).slice(0, 500)}</code></TaskItem>
+                                    if (tool.input) return <TaskItem><code className="text-xs bg-muted px-1 rounded whitespace-pre-wrap">{JSON.stringify(tool.input, null, 2).slice(0, 2000)}</code></TaskItem>
                                     return null
                                   })()}
-                                  {tool.output && <TaskItem><code className="text-xs bg-muted px-1 rounded block whitespace-pre-wrap">{tool.output.slice(0, 300)}</code></TaskItem>}
+                                  {tool.output && <TaskItem><code className="text-xs bg-muted px-1 rounded block whitespace-pre-wrap">{tool.output.slice(0, 5000)}</code></TaskItem>}
                                   {tool.artifacts?.map((artifact, j) => (
                                     <TaskItem key={j} className="mt-2">
                                       <img src={artifact} alt="Generated chart" className="rounded-lg border max-w-[600px]" />
