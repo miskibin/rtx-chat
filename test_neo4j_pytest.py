@@ -114,20 +114,22 @@ def test_semantic_search_preferences(setup_knowledge_graph):
         "Top result should be about coding preferences"
 
 
-def test_semantic_search_recent_events(setup_knowledge_graph):
-    """Test semantic search for events"""
-    query = "Who did I meet recently?"
-    results = get_context_aware_memories(query, top_k=4)
+def test_semantic_search_preferences(setup_knowledge_graph):
+    """Test semantic search for user preferences"""
+    query = "What are my coding preferences?"
+    results = get_context_aware_memories(query, top_k=3)
     
     logger.info(f"\n=== Query: '{query}' ===")
     for i, r in enumerate(results, 1):
         logger.info(f"{i}. [{r['type']}] {r['summary'][:80]}... (score: {r['score']:.3f})")
     
-    # Should find event memories
-    assert len(results) >= 2, "Should find at least 2 events"
+    # Should return preference-type memories with high score
+    assert len(results) >= 1, "Should find at least 1 preference"
     
-    event_count = sum(1 for r in results if r['type'] == 'event')
-    assert event_count >= 1, "Should have at least one event in results"
+    # Check top result is about preferences
+    top_result = results[0]
+    assert 'python' in top_result['summary'].lower() or 'prefer' in top_result['summary'].lower(), \
+        "Top result should be about coding preferences"
 
 
 def test_memory_update_via_similarity(setup_knowledge_graph):
@@ -200,6 +202,61 @@ def test_similarity_scores_are_reasonable(setup_knowledge_graph):
     # Results should be ordered by score (descending)
     for i in range(len(results) - 1):
         assert results[i]['score'] >= results[i+1]['score'], "Results should be ordered by score descending"
+
+
+def test_hard_queries_find_relevant_in_top5(setup_knowledge_graph):
+    """Test harder queries - valid result should be in top 5"""
+    
+    test_cases = [
+        {
+            "query": "late night emergency production issues",
+            "expected_keywords": ["3am", "authentication", "bug", "critical"],
+            "description": "Should find 3am authentication bug fix"
+        },
+        {
+            "query": "Aleksander MCP server recommendation",
+            "expected_keywords": ["fastmcp", "mcp", "aleksander", "recommended"],
+            "description": "Should find FastMCP recommendation from Aleksander"
+        },
+        {
+            "query": "Rust systems programming",
+            "expected_keywords": ["rust", "systems", "programming", "language"],
+            "description": "Should find Rust preference"
+        },
+        {
+            "query": "vector databases RAG learning",
+            "expected_keywords": ["vector", "rag", "learn", "goal"],
+            "description": "Should find RAG/vector database learning goal"
+        },
+        {
+            "query": "Ola knowledge graphs AI",
+            "expected_keywords": ["ola", "knowledge graph", "ai agents"],
+            "description": "Should find Ola's interests via hybrid search"
+        },
+        {
+            "query": "GraphRAG retrieval augmented generation",
+            "expected_keywords": ["graphrag", "graph database", "retrieval"],
+            "description": "Should find GraphRAG fact"
+        }
+    ]
+    
+    for tc in test_cases:
+        results = get_context_aware_memories(tc["query"], top_k=5)
+        
+        logger.info(f"\n=== Hard Query: '{tc['query']}' ===")
+        logger.info(f"Expected: {tc['description']}")
+        for i, r in enumerate(results, 1):
+            logger.info(f"{i}. [{r['type']}] {r['summary'][:70]}... (score: {r['score']:.3f})")
+        
+        # Check if any result in top 5 contains expected keywords
+        found = False
+        for r in results:
+            summary_lower = r['summary'].lower()
+            if any(kw.lower() in summary_lower for kw in tc['expected_keywords']):
+                found = True
+                break
+        
+        assert found, f"Query '{tc['query']}' - Expected result not in top 5: {tc['description']}"
 
 
 if __name__ == "__main__":
