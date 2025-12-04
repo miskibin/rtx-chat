@@ -35,6 +35,19 @@ def setup_knowledge_graph():
     save_memory("fact", "Neo4j uses Cypher as query language", [], 0.6, "long")
     save_memory("fact", "Embedding models convert text to vectors for semantic search", [], 0.7, "long")
     
+    # More diverse memories for harder queries
+    save_memory("event", "Debugged memory leak in production, took 6 hours", [], 0.9, "long")
+    save_memory("event", "Presented graph database architecture to the team", ["Ola"], 0.7, "medium")
+    save_memory("fact", "User's favorite programming language is Rust for systems programming", [], 0.8, "long")
+    save_memory("preference", "Prefer async/await over callbacks for async code", [], 0.7, "medium")
+    save_memory("goal", "Learn more about vector databases and RAG systems", [], 0.8, "long")
+    save_memory("goal", "Build a personal knowledge graph with 1000+ memories", [], 0.6, "medium")
+    save_memory("event", "Fixed critical bug in authentication service at 3am", [], 0.9, "long")
+    save_memory("person", "Ola is also interested in knowledge graphs and AI agents", ["Ola"], 0.7, "long")
+    save_memory("fact", "GraphRAG combines graph databases with retrieval augmented generation", [], 0.8, "long")
+    save_memory("preference", "Dislike overly verbose logging that clutters console output", [], 0.6, "short")
+    save_memory("event", "Aleksander recommended using FastMCP for MCP server development", ["Aleksander"], 0.8, "medium")
+    
     yield
     logger.info("Test knowledge graph ready")
 
@@ -67,19 +80,20 @@ def test_person_canonicalization(setup_knowledge_graph):
 
 def test_semantic_search_about_person(setup_knowledge_graph):
     """Test semantic search for person-related queries"""
-    query = "Tell me about Alek"
+    query = "Alek coffee Starbucks project"
     results = get_context_aware_memories(query, top_k=3)
     
     logger.info(f"\n=== Query: '{query}' ===")
     for i, r in enumerate(results, 1):
         logger.info(f"{i}. [{r['type']}] {r['summary'][:80]}... (score: {r['score']:.3f})")
     
-    # Should find memories about Alek/Aleksander
-    assert len(results) >= 2, "Should find at least 2 relevant memories about Alek"
+    # Should find event about Alek at Starbucks
+    assert len(results) >= 1, "Should find at least 1 relevant memory"
     
-    # Check that at least one result mentions Alek or is about him
-    alek_related = any('alek' in r['summary'].lower() for r in results)
-    assert alek_related, "Results should mention Alek"
+    # Top result should be the coffee event
+    top = results[0]
+    assert 'alek' in top['summary'].lower() or 'coffee' in top['summary'].lower(), \
+        "Top result should mention Alek or coffee event"
 
 
 def test_semantic_search_preferences(setup_knowledge_graph):

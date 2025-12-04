@@ -53,7 +53,7 @@ def _canonicalize_person(name: str) -> str:
             if (
                 sim > 0.85
                 and name[0].lower() == canonical_name[0].lower()
-                and abs(len(name) - len(canonical_name)) <= 5
+                and abs(len(name) - len(canonical_name)) <= 6
             ):
 
                 logger.info(
