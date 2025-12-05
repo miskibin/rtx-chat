@@ -1,7 +1,9 @@
 from neo4j import GraphDatabase
 from loguru import logger
 from langchain_ollama import OllamaEmbeddings
+from rapidfuzz import fuzz
 import os
+import re
 from datetime import datetime
 from uuid import uuid4
 from dotenv import load_dotenv
@@ -91,12 +93,17 @@ def _canonicalize_person(name: str) -> str:
 
 
 def save_memory(
-    type: str, summary: str, entities: list[str], importance: float, persistence: str
+    type: str, summary: str, entities: list[str], importance: float, persistence: str,
+    relationship_type: str = "RELATES_TO"
 ) -> str:
     """
     Smarter save:
     1. If type is 'preference' or 'fact', it looks for existing similar memories to UPDATE.
     2. If type is 'event', it usually appends (history).
+    
+    Args:
+        relationship_type: The type of relationship between Memory and Person entities.
+                          Examples: "HELPED_BY", "MET_WITH", "DISCUSSED_WITH", "ANNOYED_BY"
     """
     _ensure_user()
     summary_emb = embeddings.embed_query(summary)
@@ -160,11 +167,18 @@ def save_memory(
         database_="neo4j",
     )
 
-    # Link Entities
+    # Link Entities with dynamic relationship type
+    # Sanitize relationship_type to prevent injection (only alphanumeric and underscore)
+    safe_rel_type = "".join(c for c in relationship_type if c.isalnum() or c == "_").upper()
+    if not safe_rel_type:
+        safe_rel_type = "RELATES_TO"
+    
     for entity in entities:
         person_id = _canonicalize_person(entity)
+        # Neo4j doesn't support parameterized relationship types, so we use f-string
+        # The relationship type is sanitized above to prevent injection
         driver.execute_query(
-            "MATCH (m:Memory {id: $mid}), (p:Person) WHERE elementId(p) = $pid CREATE (m)-[:REFERS_TO]->(p)",
+            f"MATCH (m:Memory {{id: $mid}}), (p:Person) WHERE elementId(p) = $pid CREATE (m)-[:{safe_rel_type}]->(p)",
             mid=mem_id,
             pid=person_id,
             database_="neo4j",
@@ -204,136 +218,310 @@ def update_person_bio(element_id: str, new_info: str):
 def get_person_state(name: str) -> dict:
     """
     Retrieves the Consolidated State of a person, not just a list of memories.
+    Now includes relationship types for each memory.
     """
     pid = _canonicalize_person(name)
     records, _, _ = driver.execute_query(
         """
         MATCH (p:Person) WHERE elementId(p) = $pid
-        OPTIONAL MATCH (p)<-[:REFERS_TO]-(m:Memory)
+        OPTIONAL MATCH (p)<-[r]-(m:Memory)
         RETURN p.name_canonical as name, 
                p.summary as summary, 
                p.aliases as aliases,
-               collect(m.summary) as raw_memories
+               collect({summary: m.summary, relationship: type(r)}) as raw_memories
         """,
         pid=pid,
         database_="neo4j",
     )
     return dict(records[0])
 
-def _get_entity_from_message_context(user_message_emb: list[float]) -> str | None:
-    """Detects if the user message semantically refers to a known Person."""
+def _extract_words_from_message(message: str) -> list[str]:
+    """Extract individual words from message for fuzzy matching."""
+    words = re.findall(r'\b\w+\b', message.lower())
+    return words
+
+
+def _get_entity_subgraph(entity_id: str, limit: int = 10) -> dict:
+    """
+    Retrieves 1-hop subgraph around an entity (Person node).
+    Returns the entity info and all directly connected memories with their relationship types.
+    """
     records, _, _ = driver.execute_query(
-        "MATCH (p:Person) RETURN elementId(p) as id, p.embedding as emb, p.name_canonical as name",
+        """
+        MATCH (p:Person) WHERE elementId(p) = $pid
+        OPTIONAL MATCH (p)<-[r]-(m:Memory)
+        WITH p, m, r
+        ORDER BY m.importance DESC, m.timestamp DESC
+        LIMIT $limit
+        RETURN p.name_canonical as name,
+               p.summary as person_summary,
+               p.aliases as aliases,
+               collect({
+                   eid: elementId(m),
+                   id: m.id,
+                   summary: m.summary,
+                   type: m.type,
+                   relationship: type(r),
+                   importance: m.importance
+               }) as memories
+        """,
+        pid=entity_id,
+        limit=limit,
+        database_="neo4j",
+    )
+    
+    if not records:
+        return {"name": None, "person_summary": None, "aliases": [], "memories": []}
+    
+    result = dict(records[0])
+    # Filter out None memories (from OPTIONAL MATCH when no memories exist)
+    result["memories"] = [m for m in result["memories"] if m.get("id")]
+    return result
+
+
+def _detect_entity_hybrid(user_message: str, user_message_emb: list[float] | None = None) -> str | None:
+    """
+    Hybrid entity detection combining:
+    1. Fuzzy string matching (Levenshtein) on person names and aliases
+    2. Embedding similarity as fallback
+    
+    This catches cases like "alek znow mnie wkurwil" where the message
+    semantically differs from the name but contains it as a substring.
+    """
+    records, _, _ = driver.execute_query(
+        "MATCH (p:Person) RETURN elementId(p) as id, p.embedding as emb, p.name_canonical as name, p.aliases as aliases",
         database_="neo4j"
     )
-
+    
+    if not records:
+        return None
+    
+    message_words = _extract_words_from_message(user_message)
     best_match_id = None
     best_score = 0.0
+    match_method = None
     
     for r in records:
-        if r["emb"]:
-            # Cosine similarity between message embedding and person name embedding
-            # This is a key part of "entity detection" when the query is simple like "Who is X?"
-            sim = sum(a*b for a,b in zip(user_message_emb, r["emb"])) / (sum(a*a for a in user_message_emb)**0.5 * sum(b*b for b in r["emb"])**0.5)
-            
-            # High threshold (0.90) to ensure high confidence that the query is about the person
-            if sim > 0.90 and sim > best_score:
-                best_score = sim
-                best_match_id = r["id"]
-                logger.debug(f"Automatic Entity Detection: {r['name']} matched with score {sim:.2f}")
-
-    return best_match_id
+        canonical_name = r["name"]
+        aliases = r["aliases"] or []
+        all_names = [canonical_name] + aliases
+        
+        # METHOD 1: Fuzzy string matching on each word in the message
+        for word in message_words:
+            for name in all_names:
+                # Exact match (case insensitive)
+                if word == name.lower():
+                    logger.info(f"Entity Detection (exact match): '{name}' found in message")
+                    return r["id"]
+                
+                # Fuzzy match with high threshold (rapidfuzz returns 0-100)
+                ratio = fuzz.ratio(word, name.lower()) / 100.0
+                if ratio > 0.8 and ratio > best_score:
+                    best_score = ratio
+                    best_match_id = r["id"]
+                    match_method = f"fuzzy:{name}:{ratio:.2f}"
+    
+    # If fuzzy matching found something good, return it
+    if best_match_id and best_score > 0.8:
+        logger.info(f"Entity Detection ({match_method})")
+        return best_match_id
+    
+    # METHOD 2: Embedding similarity as fallback - ONLY for very short queries
+    # that might be just asking "Who is X?" style questions.
+    # For longer queries, rely only on fuzzy matching to avoid false positives.
+    if len(message_words) <= 4:  # Short query like "Tell me about Alek"
+        if user_message_emb is None:
+            user_message_emb = embeddings.embed_query(user_message)
+        
+        best_match_id = None
+        best_score = 0.0
+        
+        for r in records:
+            if r["emb"]:
+                # Cosine similarity
+                sim = sum(a*b for a,b in zip(user_message_emb, r["emb"])) / (
+                    sum(a*a for a in user_message_emb)**0.5 * sum(b*b for b in r["emb"])**0.5
+                )
+                
+                # High threshold (0.85) - only trigger for clear entity references
+                if sim > 0.85 and sim > best_score:
+                    best_score = sim
+                    best_match_id = r["id"]
+                    match_method = f"embedding:{r['name']}:{sim:.2f}"
+        
+        if best_match_id:
+            logger.info(f"Entity Detection ({match_method})")
+            return best_match_id
+    
+    return None
 
 def get_context_aware_memories(user_message: str, top_k: int = 5) -> list[dict]:
     """
     Retrieves memories using a HYBRID approach:
     1. Vector Search (Semantic) for all memories.
-    2. Structural Search (Graph) automatically enabled if an entity is detected in the message.
+    2. Structural Search (Graph) via 1-hop subgraph when entity is detected.
     
-    Returns memories with connected entities to reconstruct context.
+    Uses hybrid entity detection (fuzzy + embedding) to catch mentions like
+    "alek znow mnie wkurwil" even when semantics differ from the entity name.
+    
+    Returns memories with connected entities and relationship types.
     """
     msg_emb = embeddings.embed_query(user_message)
     
-    # NEW: Automatically detect entity based on semantic similarity of the message
-    person_id = _get_entity_from_message_context(msg_emb)
-
-    # 1. Base Vector Search Query (applies to all memories)
-    query_vector = """
+    # Hybrid entity detection: fuzzy string matching + embedding similarity
+    person_id = _detect_entity_hybrid(user_message, msg_emb)
+    
+    # Collect memories from different sources with scores
+    all_memories = {}  # eid -> memory dict with score
+    
+    # 1. Vector Search (Semantic) - applies to all memories
+    vector_records, _, _ = driver.execute_query(
+        """
         MATCH (u:User {id: 'self'})-[:HAS_MEMORY]->(m:Memory)
         WITH m, vector.similarity.cosine(m.embedding, $emb) AS score
         WHERE score > 0.5
         RETURN elementId(m) as eid, m.id as id, m.type as type, m.summary as summary, score
-    """
-    params = {"emb": msg_emb}
+        """,
+        emb=msg_emb,
+        database_="neo4j"
+    )
     
-    # 2. Entity-Specific Graph Search (Hybrid Component)
-    entity_filter_part = ""
+    for r in vector_records:
+        all_memories[r["eid"]] = {
+            "eid": r["eid"],
+            "id": r["id"],
+            "type": r["type"],
+            "summary": r["summary"],
+            "score": r["score"],
+            "source": "semantic"
+        }
+    
+    # 2. Graph Search (1-hop subgraph) - if entity detected
+    entity_context = None
     if person_id:
-        logger.info(f"Hybrid Search Activated for Entity ID: {person_id}")
-        # Add a structural component to the query to retrieve all memories directly linked to this entity.
-        # We use UNION to combine semantic search results with structural search results.
-        entity_filter_part = f"""
-            UNION
-            MATCH (u:User {{id: 'self'}})-[:HAS_MEMORY]->(m:Memory)-[:REFERS_TO]->(p:Person)
-            WHERE elementId(p) = '{person_id}'
-            // Give these structural results a base score of 0.6 to ensure they rank reasonably well
-            RETURN elementId(m) as eid, m.id as id, m.type as type, m.summary as summary, 0.6 as score
-            """
-    
-    final_query = f"""
-        {query_vector}
-        {entity_filter_part}
-    """
-    
-    # 3. Final Aggregation and Retrieval
-    records, _, _ = driver.execute_query(final_query, **params, database_="neo4j")
-    
-    # Deduplicate memories by elementId (eid) and select the highest score if duplicates exist (from UNION)
-    deduplicated_mems = {}
-    for r in records:
-        eid = r["eid"]
-        if eid not in deduplicated_mems or r["score"] > deduplicated_mems[eid]["score"]:
-            deduplicated_mems[eid] = dict(r)
-
-    # Convert back to list for final processing
-    final_mems = list(deduplicated_mems.values())
-    
-    # Sort and take top_k
-    final_mems.sort(key=lambda x: x["score"], reverse=True)
-    top_mems = final_mems[:top_k]
-
-    # 4. Fetch context (connected people names) for the top memories
-    results = []
-    mem_eids = [m["eid"] for m in top_mems]
-    
-    if mem_eids:
-        # Query to fetch all connected people for the top K memories in one go
-        context_query = """
-            MATCH (m)-[:REFERS_TO]->(p:Person)
-            WHERE elementId(m) IN $eids
-            RETURN elementId(m) as eid, collect(p.name_canonical) as people
-        """
-        context_records, _, _ = driver.execute_query(context_query, eids=mem_eids, database_="neo4j")
+        logger.info(f"Hybrid Search: Retrieving 1-hop subgraph for entity ID: {person_id}")
+        subgraph = _get_entity_subgraph(person_id, limit=top_k * 2)
+        entity_context = {
+            "name": subgraph["name"],
+            "summary": subgraph["person_summary"]
+        }
         
-        context_map = {r["eid"]: r["people"] for r in context_records}
-
-        for mem in top_mems:
-            people = context_map.get(mem["eid"], [])
-            context_prefix = ""
-            if people:
-                context_prefix = f"[With {', '.join(people)}] "
+        # Add subgraph memories with HIGH score - entity mention means high relevance
+        # When user explicitly mentions an entity, those memories should be prioritized
+        for mem in subgraph["memories"]:
+            eid = mem["eid"]
+            # High base score (0.9) ensures entity memories rank above generic semantic matches
+            structural_score = 0.9
             
-            results.append({
-                "summary": context_prefix + mem["summary"], # Enriching the text!
-                "score": mem["score"],
-                "type": mem["type"]
-            })
-            
+            if eid in all_memories:
+                # Boost existing semantic match - entity + semantic = very relevant
+                all_memories[eid]["score"] = max(all_memories[eid]["score"], structural_score + 0.05)
+                all_memories[eid]["relationship"] = mem["relationship"]
+            else:
+                # Add pure structural match with high score
+                all_memories[eid] = {
+                    "eid": eid,
+                    "id": mem["id"],
+                    "type": mem["type"],
+                    "summary": mem["summary"],
+                    "score": structural_score,
+                    "source": "graph",
+                    "relationship": mem["relationship"]
+                }
+    
+    # 3. Sort by score and take top_k
+    sorted_mems = sorted(all_memories.values(), key=lambda x: x["score"], reverse=True)[:top_k]
+    
+    # 4. Fetch additional context (connected people) for memories without relationship info
+    results = []
+    mem_eids_needing_context = [m["eid"] for m in sorted_mems if "relationship" not in m]
+    
+    context_map = {}
+    if mem_eids_needing_context:
+        context_query = """
+            MATCH (m)-[r]->(p:Person)
+            WHERE elementId(m) IN $eids
+            RETURN elementId(m) as eid, collect({name: p.name_canonical, rel: type(r)}) as connections
+        """
+        context_records, _, _ = driver.execute_query(context_query, eids=mem_eids_needing_context, database_="neo4j")
+        context_map = {r["eid"]: r["connections"] for r in context_records}
+    
+    # 5. Format results with relationship context
+    for mem in sorted_mems:
+        context_prefix = ""
+        
+        if "relationship" in mem and entity_context:
+            # Direct entity match - use the relationship type
+            context_prefix = f"[{mem['relationship']} {entity_context['name']}] "
+        else:
+            # Use fetched context
+            connections = context_map.get(mem["eid"], [])
+            if connections:
+                conn_strs = [f"{c['rel']} {c['name']}" for c in connections if c.get('name')]
+                if conn_strs:
+                    context_prefix = f"[{', '.join(conn_strs)}] "
+        
+        results.append({
+            "summary": context_prefix + mem["summary"],
+            "score": mem["score"],
+            "type": mem["type"]
+        })
+    
     return results
 
 
 def list_memories_raw():
     records, _, _ = driver.execute_query(
-        "MATCH (m:Memory) RETURN m.type as type, m.summary as summary", database_="neo4j"
+        "MATCH (m:Memory) RETURN m.id as id, m.type as type, m.summary as summary", database_="neo4j"
+    )
+    return [dict(r) for r in records]
+
+
+def delete_memory(memory_id: str) -> bool:
+    """Delete a memory by its ID."""
+    result = driver.execute_query(
+        "MATCH (m:Memory {id: $mid}) DETACH DELETE m RETURN count(m) as deleted",
+        mid=memory_id,
+        database_="neo4j",
+    )
+    deleted = result[0][0]["deleted"] if result[0] else 0
+    if deleted > 0:
+        logger.info(f"Deleted memory: {memory_id}")
+    return deleted > 0
+
+
+def update_memory(memory_id: str, new_summary: str) -> bool:
+    """Update a memory's summary and re-embed it."""
+    new_emb = embeddings.embed_query(new_summary)
+    result = driver.execute_query(
+        """
+        MATCH (m:Memory {id: $mid})
+        SET m.summary = $summary, m.embedding = $emb, m.timestamp = $ts
+        RETURN m.id as id
+        """,
+        mid=memory_id,
+        summary=new_summary,
+        emb=new_emb,
+        ts=datetime.now().isoformat(),
+        database_="neo4j",
+    )
+    updated = len(result[0]) > 0
+    if updated:
+        logger.info(f"Updated memory {memory_id}: {new_summary[:50]}...")
+    return updated
+
+
+def list_people() -> list[dict]:
+    """List all people in the knowledge graph."""
+    records, _, _ = driver.execute_query(
+        """
+        MATCH (p:Person)
+        OPTIONAL MATCH (p)<-[r]-(m:Memory)
+        RETURN p.name_canonical as name, 
+               p.aliases as aliases,
+               count(m) as memory_count
+        ORDER BY memory_count DESC
+        """,
+        database_="neo4j",
     )
     return [dict(r) for r in records]
