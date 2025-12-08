@@ -2,7 +2,7 @@ from langchain.tools import tool
 from neo4j import GraphDatabase
 from langchain_ollama import OllamaEmbeddings
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 from loguru import logger
 import os
 from dotenv import load_dotenv
@@ -27,7 +27,7 @@ def list_people() -> list[str]:
 
 
 @tool
-def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: list[str] = []) -> str:
+def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: list[str] = [], limit: int = 5) -> str:
     """Search memories by query or entity names. Returns people, events, facts."""
     label_to_model = {"Person": Person, "Event": Event, "Fact": Fact, "Preference": Preference}
     
@@ -37,7 +37,7 @@ def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: l
                 """MATCH (p:Person) WHERE p.name IN $names
                 OPTIONAL MATCH (u:User)-[k:KNOWS]->(p)
                 OPTIONAL MATCH (p)-[r:PARTICIPATED_IN]->(e:Event)
-                RETURN p, k, collect(DISTINCT {event: e, rel: r}) as events""",
+                RETURN p, k, collect(DISTINCT {event: e, rel: r}) as events, elementId(p) as id""",
                 names=entity_names
             )
             output = []
@@ -45,9 +45,11 @@ def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: l
                 person_str = str(Person(**dict(rec["p"])))
                 if rec["k"]:
                     person_str += f" [{rec['k']['relation_type']}, {rec['k']['sentiment']}]"
-                output.append(person_str)
+                output.append(f"{person_str} [ID: {rec['id']}]")
                 for evt in rec["events"]:
                     if evt["event"]:
+                        # Note: Event ID not easily available here without changing query structure significantly
+                        # But entity search is mostly for people context.
                         output.append(f"  → {str(Event(**dict(evt['event'])))}")
             return "\n".join(output) if output else "No results"
         
@@ -58,37 +60,37 @@ def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: l
         for label in labels:
             if label == "Person":
                 result = session.run(
-                    f"CALL db.index.vector.queryNodes('embedding_index_{label}', 3, $embedding) YIELD node, score "
-                    f"OPTIONAL MATCH (u:User)-[k:KNOWS]->(node) RETURN node, score, k",
-                    embedding=query_embedding
+                    f"CALL db.index.vector.queryNodes('embedding_index_{label}', $limit, $embedding) YIELD node, score "
+                    f"OPTIONAL MATCH (u:User)-[k:KNOWS]->(node) RETURN node, score, k, elementId(node) as id",
+                    embedding=query_embedding, limit=limit
                 )
                 for rec in result:
                     person = Person(**dict(rec["node"]))
                     rel = f" → {rec['k']['relation_type']} ({rec['k']['sentiment']})" if rec["k"] else ""
-                    all_results.append({"output": f"Person: {person}{rel}", "score": rec["score"]})
+                    all_results.append({"output": f"Person: {person}{rel} [ID: {rec['id']}]", "score": rec["score"]})
             elif label == "Event":
                 result = session.run(
-                    f"CALL db.index.vector.queryNodes('embedding_index_{label}', 3, $embedding) YIELD node, score "
+                    f"CALL db.index.vector.queryNodes('embedding_index_{label}', $limit, $embedding) YIELD node, score "
                     f"OPTIONAL MATCH (p:Person)-[:PARTICIPATED_IN]->(node) "
-                    f"RETURN node, score, collect(DISTINCT p.name) as participants",
-                    embedding=query_embedding
+                    f"RETURN node, score, collect(DISTINCT p.name) as participants, elementId(node) as id",
+                    embedding=query_embedding, limit=limit
                 )
                 for rec in result:
                     event = Event(**dict(rec["node"]))
                     parts = [p for p in rec["participants"] if p]
                     detail = f" | 👥 {', '.join(parts)}" if parts else ""
-                    all_results.append({"output": f"Event: {event}{detail}", "score": rec["score"]})
+                    all_results.append({"output": f"Event: {event}{detail} [ID: {rec['id']}]", "score": rec["score"]})
             else:
                 result = session.run(
-                    f"CALL db.index.vector.queryNodes('embedding_index_{label}', 3, $embedding) YIELD node, score RETURN node, score",
-                    embedding=query_embedding
+                    f"CALL db.index.vector.queryNodes('embedding_index_{label}', $limit, $embedding) YIELD node, score RETURN node, score, elementId(node) as id",
+                    embedding=query_embedding, limit=limit
                 )
                 for rec in result:
                     model = label_to_model[label]
-                    all_results.append({"output": f"{label}: {model(**dict(rec['node']))}", "score": rec["score"]})
+                    all_results.append({"output": f"{label}: {model(**dict(rec['node']))} [ID: {rec['id']}]", "score": rec["score"]})
         
         all_results.sort(key=lambda x: x["score"], reverse=True)
-        return "\n".join(r["output"] for r in all_results[:10]) or "No results"
+        return "\n".join(r["output"] for r in all_results[:limit]) or "No results"
 
 
 @tool
@@ -200,5 +202,40 @@ def add_or_update_relationship(
     return f"Relationship: {start_person} -[{relation_type}]-> {end_person}"
 
 
+@tool
+def update_fact(fact_id: str, new_content: str) -> str:
+    """Update an existing fact using its ID."""
+    with _driver.session() as session:
+        rec = session.run("MATCH (f:Fact) WHERE elementId(f) = $id RETURN f.category as category", id=fact_id).single()
+        if not rec: return "Fact not found"
+        category = rec["category"]
+        
+        fact = Fact(content=new_content, category=category)
+        embedding = _embeddings.embed_query(fact.embedding_text)
+        
+        session.run(
+            "MATCH (f:Fact) WHERE elementId(f) = $id SET f.content = $content, f.embedding = $embedding",
+            id=fact_id, content=new_content, embedding=embedding
+        )
+    return f"Fact updated: {new_content}"
+
+
+@tool
+def update_preference(preference_id: str, new_instruction: str) -> str:
+    """Update an existing preference using its ID."""
+    with _driver.session() as session:
+        rec = session.run("MATCH (p:Preference) WHERE elementId(p) = $id RETURN p", id=preference_id).single()
+        if not rec: return "Preference not found"
+        
+        pref = Preference(instruction=new_instruction)
+        embedding = _embeddings.embed_query(pref.embedding_text)
+        
+        session.run(
+            "MATCH (p:Preference) WHERE elementId(p) = $id SET p.instruction = $instruction, p.embedding = $embedding",
+            id=preference_id, instruction=new_instruction, embedding=embedding
+        )
+    return f"Preference updated: {new_instruction}"
+
+
 def get_memory_tools():
-    return [kg_retrieve_context, kg_get_user_preferences, kg_check_relationship, add_or_update_person, add_event, add_fact, add_preference, add_or_update_relationship]
+    return [kg_retrieve_context, kg_get_user_preferences, kg_check_relationship, add_or_update_person, add_event, add_fact, add_preference, add_or_update_relationship, update_fact, update_preference]

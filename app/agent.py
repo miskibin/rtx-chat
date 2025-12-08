@@ -20,10 +20,13 @@ You have access to a knowledge graph memory system. Use these tools:
 - add_event: Save significant events/experiences  
 - add_fact: Save facts about the user
 - add_preference: Save user preferences for chat behavior
+- update_fact: Update an existing fact (use ID from context)
+- update_preference: Update an existing preference (use ID from context)
 
 {known_people}
 
-Save important info immediately when user shares it. Query memories when context is needed."""
+Save important info immediately when user shares it. Query memories when context is needed.
+IMPORTANT: When user asks to correct/update a fact, ALWAYS use update_fact/update_preference with the ID from context. DO NOT create a new fact unless it's completely new information."""
 
 NORMAL_PROMPT = """You are a helpful AI assistant.
 Current date and time: {datetime}
@@ -109,6 +112,7 @@ class ConversationManager:
         self.model_name = "qwen3:4b"
         self.capabilities: list[str] = []
         self.max_tool_runs = 10
+        self.max_memories = 5
         self.enabled_tools: list[str] | None = None
 
     def set_model(self, model_name: str):
@@ -118,9 +122,10 @@ class ConversationManager:
             self.capabilities = get_model_capabilities(model_name)
             self.agent = None
 
-    def set_settings(self, max_tool_runs: int = 10, enabled_tools: list[str] | None = None):
-        if max_tool_runs != self.max_tool_runs or enabled_tools != self.enabled_tools:
+    def set_settings(self, max_tool_runs: int = 10, max_memories: int = 5, enabled_tools: list[str] | None = None):
+        if max_tool_runs != self.max_tool_runs or enabled_tools != self.enabled_tools or max_memories != self.max_memories:
             self.max_tool_runs = max_tool_runs
+            self.max_memories = max_memories
             self.enabled_tools = enabled_tools
             self.agent = None
 
@@ -137,7 +142,7 @@ class ConversationManager:
         self.messages.append(AIMessage(content=content))
 
     def get_memories(self, query: str) -> str:
-        result = kg_retrieve_context.invoke({"query": query})
+        result = kg_retrieve_context.invoke({"query": query, "limit": self.max_memories})
         return str(result) if result and result != "No results" else ""
 
     def get_preferences(self) -> str:

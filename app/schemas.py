@@ -5,6 +5,7 @@ class ChatRequest(BaseModel):
     model: str = "qwen3:4b"
     system_prompt: str = "psychological"
     max_tool_runs: int = 10
+    max_memories: int = 5
     enabled_tools: list[str] | None = None
 
 class ChatResponse(BaseModel):

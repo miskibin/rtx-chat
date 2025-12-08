@@ -13,6 +13,7 @@ type SystemPromptType = "normal" | "psychological"
 
 type Settings = {
   maxToolRuns: number
+  maxMemories: number
   enabledTools: string[]
 }
 
@@ -50,8 +51,8 @@ export const useChatStore = create<ChatStore>()(
       currentThinkingId: null,
       editingMessageId: null,
       systemPrompt: "psychological",
-      settings: { maxToolRuns: 10, enabledTools: [] },
-      setMessages: (fn) => set((s) => ({ messages: fn(s.messages) })),
+      settings: { maxToolRuns: 10, maxMemories: 5, enabledTools: [] },
+      setMessages: (fn) => set((state) => ({ messages: fn(state.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setInput: (input) => set({ input }),
       setStatus: (status) => set({ status }),

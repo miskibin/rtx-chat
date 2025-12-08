@@ -21,7 +21,7 @@ def parse_artifacts(output: str) -> tuple[str, list[str]]:
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     conversation.set_model(request.model)
-    conversation.set_settings(request.max_tool_runs, request.enabled_tools)
+    conversation.set_settings(request.max_tool_runs, request.max_memories, request.enabled_tools)
     
     async def event_generator():
         full_content = ""

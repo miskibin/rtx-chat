@@ -168,6 +168,7 @@ export default function Home() {
           model: selectedModel,
           system_prompt: systemPrompt,
           max_tool_runs: settings.maxToolRuns,
+          max_memories: settings.maxMemories,
           enabled_tools:
             settings.enabledTools.length > 0 ? settings.enabledTools : null,
         }),
