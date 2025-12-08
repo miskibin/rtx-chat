@@ -304,4 +304,12 @@ def add_or_update_relationship(
             props=updates,
         )
 
-    return f"{start_person_name} -[{relation_type}]-> {end_person_name}"
+    return json.dumps(
+        {
+            "status": "success",
+            "relationship": f"{start_person_name} -[{relation_type}]-> {end_person_name}",
+        }
+    )
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
