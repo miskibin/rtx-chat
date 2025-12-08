@@ -204,7 +204,7 @@ def add_or_update_relationship(
 
 @tool
 def update_fact(fact_id: str, new_content: str) -> str:
-    """Update an existing fact using its ID."""
+    """Update an existing fact using its ID. Use this when correcting information."""
     with _driver.session() as session:
         rec = session.run("MATCH (f:Fact) WHERE elementId(f) = $id RETURN f.category as category", id=fact_id).single()
         if not rec: return "Fact not found"
@@ -222,7 +222,7 @@ def update_fact(fact_id: str, new_content: str) -> str:
 
 @tool
 def update_preference(preference_id: str, new_instruction: str) -> str:
-    """Update an existing preference using its ID."""
+    """Update an existing preference using its ID. Use this when correcting information."""
     with _driver.session() as session:
         rec = session.run("MATCH (p:Preference) WHERE elementId(p) = $id RETURN p", id=preference_id).single()
         if not rec: return "Preference not found"
