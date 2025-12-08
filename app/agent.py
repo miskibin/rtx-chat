@@ -152,7 +152,7 @@ class ConversationManager:
     def get_people(self) -> list[str]:
         return list_people()
 
-    async def stream_response(self, user_input: str, system_prompt: str = "psychological"):
+    async def stream_response(self, user_input: str, system_prompt: str = "psychological", history: list[dict] | None = None):
         yield {"type": "memory_search_start", "query": user_input[:100]}
         memories_text = self.get_memories(user_input)
         yield {"type": "memory_search_end", "memories": memories_text.split("\n") if memories_text else []}
@@ -174,12 +174,20 @@ class ConversationManager:
             )
         )
 
-        if not self.messages:
-            self.messages.append(system_msg)
+        if history is not None:
+            self.messages = [system_msg]
+            for msg in history:
+                if msg["role"] == "user":
+                    self.messages.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    self.messages.append(AIMessage(content=msg["content"]))
         else:
-            self.messages[0] = system_msg
+            if not self.messages:
+                self.messages.append(system_msg)
+            else:
+                self.messages[0] = system_msg
 
-        self.add_user_message(user_input)
+            self.add_user_message(user_input)
 
         summary = get_conversation_summary()
         if summary and len(self.messages) > 15:

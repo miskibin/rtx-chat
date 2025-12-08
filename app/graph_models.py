@@ -9,7 +9,7 @@ load_dotenv()
 
 URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 AUTH = (os.getenv("NEO4J_USERNAME", "neo4j"), os.getenv("NEO4J_PASSWORD", "password"))
-_driver = GraphDatabase.driver(URI, auth=AUTH)
+_driver = GraphDatabase.driver(URI, auth=AUTH, max_connection_lifetime=300, keep_alive=True)
 _embeddings = OllamaEmbeddings(model="embeddinggemma")
 
 

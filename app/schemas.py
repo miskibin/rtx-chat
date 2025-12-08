@@ -1,7 +1,12 @@
 from pydantic import BaseModel
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
     message: str
+    messages: list[ChatMessage] | None = None
     model: str = "qwen3:4b"
     system_prompt: str = "psychological"
     max_tool_runs: int = 10

@@ -16,12 +16,15 @@ load_dotenv()
 
 URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 AUTH = (os.getenv("NEO4J_USERNAME", "neo4j"), os.getenv("NEO4J_PASSWORD", "password"))
-_driver = GraphDatabase.driver(URI, auth=AUTH)
+_driver = GraphDatabase.driver(URI, auth=AUTH, max_connection_lifetime=300, keep_alive=True)
 _embeddings = OllamaEmbeddings(model="embeddinggemma")
+
+def get_session():
+    return _driver.session(database="neo4j")
 
 
 def list_people() -> list[str]:
-    with _driver.session() as session:
+    with get_session() as session:
         result = session.run("MATCH (p:Person) RETURN p.name as name")
         return [r["name"] for r in result]
 
@@ -31,7 +34,7 @@ def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: l
     """Search memories by query or entity names. Returns people, events, facts."""
     label_to_model = {"Person": Person, "Event": Event, "Fact": Fact, "Preference": Preference}
     
-    with _driver.session() as session:
+    with get_session() as session:
         if entity_names:
             result = session.run(
                 """MATCH (p:Person) WHERE p.name IN $names
@@ -96,7 +99,7 @@ def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: l
 @tool
 def kg_get_user_preferences() -> str:
     """Get user preferences for AI behavior."""
-    with _driver.session() as session:
+    with get_session() as session:
         result = session.run("MATCH (u:User)-[:HAS_PREFERENCE]->(p:Preference) RETURN p.instruction as instruction")
         prefs = [r["instruction"] for r in result]
         return "\n".join(f"- {p}" for p in prefs) if prefs else "No preferences"
@@ -105,7 +108,7 @@ def kg_get_user_preferences() -> str:
 @tool
 def kg_check_relationship(person_name: str) -> str:
     """Check relationship between User and a Person."""
-    with _driver.session() as session:
+    with get_session() as session:
         result = session.run(
             """MATCH (u:User)-[r:KNOWS]->(p:Person {name: $name})
             OPTIONAL MATCH (p)-[:PARTICIPATED_IN]->(e:Event)
@@ -135,9 +138,9 @@ def add_or_update_person(
     
     if relation_type and sentiment:
         knows = KnowsRelationship(relation_type=relation_type, sentiment=sentiment, since=datetime.now().date().isoformat())
-        with _driver.session() as session:
+        with get_session() as session:
             session.run(
-                "MATCH (u:User), (p:Person {name: $name}) MERGE (u)-[r:KNOWS]->(p) SET r += $props",
+                "MATCH (u:User) MATCH (p:Person {name: $name}) MERGE (u)-[r:KNOWS]->(p) SET r += $props",
                 name=name, props=knows.model_dump(exclude_none=True)
             )
     
@@ -152,15 +155,15 @@ def add_event(description: str, participants: list[str], mentioned_people: list[
     event = Event(description=description, date=date)
     event.save()
     
-    with _driver.session() as session:
+    with get_session() as session:
         for p in participants:
             session.run(
-                "MATCH (p:Person {name: $name}), (e:Event {description: $desc}) MERGE (p)-[r:PARTICIPATED_IN]->(e) SET r.role = 'participant'",
+                "MATCH (e:Event {description: $desc}) MATCH (p:Person {name: $name}) MERGE (p)-[r:PARTICIPATED_IN]->(e) SET r.role = 'participant'",
                 name=p, desc=description
             )
         for m in mentioned_people:
             session.run(
-                "MATCH (e:Event {description: $desc}), (p:Person {name: $name}) MERGE (e)-[r:MENTIONS]->(p) SET r.sentiment = 'neutral'",
+                "MATCH (e:Event {description: $desc}) MATCH (p:Person {name: $name}) MERGE (e)-[r:MENTIONS]->(p) SET r.sentiment = 'neutral'",
                 desc=description, name=m
             )
     return f"Event added: {description}"
@@ -171,8 +174,8 @@ def add_fact(content: str, category: str) -> str:
     """Add a fact about the user."""
     fact = Fact(content=content, category=category)
     fact.save()
-    with _driver.session() as session:
-        session.run("MATCH (u:User), (f:Fact {content: $content}) MERGE (u)-[:HAS_FACT]->(f)", content=content)
+    with get_session() as session:
+        session.run("MATCH (u:User) MATCH (f:Fact {content: $content}) MERGE (u)-[:HAS_FACT]->(f)", content=content)
     return f"Fact added: {content}"
 
 
@@ -181,8 +184,8 @@ def add_preference(instruction: str) -> str:
     """Add a user preference for AI behavior."""
     pref = Preference(instruction=instruction)
     pref.save()
-    with _driver.session() as session:
-        session.run("MATCH (u:User), (p:Preference {instruction: $instruction}) MERGE (u)-[:HAS_PREFERENCE]->(p)", instruction=instruction)
+    with get_session() as session:
+        session.run("MATCH (u:User) MATCH (p:Preference {instruction: $instruction}) MERGE (u)-[:HAS_PREFERENCE]->(p)", instruction=instruction)
     return f"Preference added: {instruction}"
 
 
@@ -194,9 +197,9 @@ def add_or_update_relationship(
     sentiment: Literal["positive", "negative", "neutral", "complicated"] | None = None,
 ) -> str:
     """Add or update relationship between two people."""
-    with _driver.session() as session:
+    with get_session() as session:
         session.run(
-            "MATCH (p1:Person {name: $start}), (p2:Person {name: $end}) MERGE (p1)-[r:KNOWS]->(p2) SET r.relation_type = $rel, r.sentiment = $sent",
+            "MATCH (p1:Person {name: $start}) MATCH (p2:Person {name: $end}) MERGE (p1)-[r:KNOWS]->(p2) SET r.relation_type = $rel, r.sentiment = $sent",
             start=start_person, end=end_person, rel=relation_type, sent=sentiment
         )
     return f"Relationship: {start_person} -[{relation_type}]-> {end_person}"
@@ -205,7 +208,7 @@ def add_or_update_relationship(
 @tool
 def update_fact(fact_id: str, new_content: str) -> str:
     """Update an existing fact using its ID. Use this when correcting information."""
-    with _driver.session() as session:
+    with get_session() as session:
         rec = session.run("MATCH (f:Fact) WHERE elementId(f) = $id RETURN f.category as category", id=fact_id).single()
         if not rec: return "Fact not found"
         category = rec["category"]
@@ -223,7 +226,7 @@ def update_fact(fact_id: str, new_content: str) -> str:
 @tool
 def update_preference(preference_id: str, new_instruction: str) -> str:
     """Update an existing preference using its ID. Use this when correcting information."""
-    with _driver.session() as session:
+    with get_session() as session:
         rec = session.run("MATCH (p:Preference) WHERE elementId(p) = $id RETURN p", id=preference_id).single()
         if not rec: return "Preference not found"
         

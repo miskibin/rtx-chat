@@ -141,6 +141,8 @@ export default function Home() {
           memoryOps: [] as MemoryOp[],
         };
 
+    let historyMessages: any[] = [];
+
     if (!existingAssistantId) {
       const userMsg = {
         id: crypto.randomUUID(),
@@ -148,10 +150,17 @@ export default function Home() {
         content: message,
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      historyMessages = [...messages, userMsg];
     } else {
       setMessages((prev) =>
         prev.map((m) => (m.id === existingAssistantId ? assistantMsg : m))
       );
+      const index = messages.findIndex((m) => m.id === existingAssistantId);
+      if (index !== -1) {
+        historyMessages = messages.slice(0, index);
+      } else {
+        historyMessages = messages;
+      }
     }
 
     setInput("");
@@ -165,6 +174,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
+          messages: historyMessages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
           model: selectedModel,
           system_prompt: systemPrompt,
           max_tool_runs: settings.maxToolRuns,
