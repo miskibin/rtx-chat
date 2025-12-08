@@ -56,6 +56,12 @@ def kg_initialize_database(dimension: int = 768) -> str:
         {"status": "success", "message": "Database initialized with vector indexes"}
     )
 
+def list_people() -> list[str]:
+    """List all Person names in the database."""
+    with driver.session() as session:
+        result = session.run("MATCH (p:Person) RETURN p.name as name")
+        names = [record["name"] for record in result]
+    return names
 
 @mcp.tool()
 def kg_retrieve_context(
@@ -64,51 +70,81 @@ def kg_retrieve_context(
     node_labels: list[str] = [],
 ) -> str:
     """Retrieves nodes and related edges based on a query or entities. Supports hybrid search (vector + graph)."""
+    label_to_model = {"Person": Person, "Event": Event, "Fact": Fact, "Preference": Preference, "User": User}
+    
     with driver.session() as session:
         if entity_names:
-            cypher = """
-            MATCH (p:Person) WHERE p.name IN $names
-            OPTIONAL MATCH (p)-[r:PARTICIPATED_IN]->(e:Event)
-            OPTIONAL MATCH (p)-[k:KNOWS]-(u:User)
-            OPTIONAL MATCH (e)-[m:MENTIONS]->(target)
-            RETURN p, r, e, k, u, m, target
-            """
-            result = session.run(cypher, names=entity_names)
-            records = result.data()
+            result = session.run(
+                """MATCH (p:Person) WHERE p.name IN $names
+                OPTIONAL MATCH (u:User)-[k:KNOWS]->(p)
+                OPTIONAL MATCH (p)-[r:PARTICIPATED_IN]->(e:Event)
+                RETURN p, k, collect(DISTINCT {event: e, rel: r}) as events""",
+                names=entity_names
+            )
             output = []
-            for rec in records:
-                if rec.get("p"):
-                    node = rec["p"]
-                    date = node.get("date", "")
-                    name = node.get("name", "")
-                    desc = node.get("description", "")
-                    output.append(f"({date}) {name}:{desc} | Person")
+            for rec in result:
+                person_str = str(Person(**dict(rec["p"])))
+                if rec["k"]:
+                    relation = f" [{rec['k']['relation_type']}, {rec['k']['sentiment']}]"
+                    person_str += relation
+                output.append(person_str)
+                for evt in rec["events"]:
+                    if evt["event"]:
+                        output.append(f"  → {str(Event(**dict(evt['event'])))}")
             return "\n".join(output) if output else "No results"
-        else:
-            query_embedding = _get_embedding(query)
-            labels = node_labels or ["Person", "Event", "Fact", "Preference"]
-
-            all_results = []
-            for label in labels:
-                try:
-                    cypher = f"CALL db.index.vector.queryNodes('embedding_index_{label}', 3, $embedding) YIELD node, score RETURN node, score"
-                    result = session.run(cypher, embedding=query_embedding)  # type: ignore
+        
+        query_embedding = _get_embedding(query)
+        labels = node_labels or ["Person", "Event", "Fact", "Preference"]
+        all_results = []
+        for label in labels:
+            try:
+                if label == "Person":
+                    result = session.run(
+                        f"CALL db.index.vector.queryNodes('embedding_index_{label}', 3, $embedding) YIELD node, score "
+                        f"MATCH (u:User)-[k:KNOWS]->(node) RETURN node, score, k",
+                        embedding=query_embedding
+                    )  # type: ignore
                     for rec in result:
-                        all_results.append({"node": dict(rec["node"]), "score": rec["score"], "label": label})
-                except Exception as e:
-                    logger.warning(f"Vector search failed for {label}: {e}")
-
-            all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
-            output = []
-            for item in all_results[:10]:
-                node = item["node"]
-                score = item["score"]
-                label = item["label"]
-                date = node.get("date", "")
-                name = node.get("name", node.get("content", node.get("instruction", node.get("description", ""))))
-                desc = node.get("description", node.get("content", node.get("instruction", "")))
-                output.append(f"({date}) {name}:{desc} | {label} | sim: {score:.2f}")
-            return "\n".join(output) if output else "No results"
+                        person = Person(**dict(rec["node"]))
+                        rel_info = ""
+                        if rec["k"]:
+                            rel_info = f" → {rec['k']['relation_type']} ({rec['k']['sentiment']})"
+                        all_results.append({"output": f"Person: {person}{rel_info}", "score": rec["score"]})
+                elif label == "Event":
+                    result = session.run(
+                        f"CALL db.index.vector.queryNodes('embedding_index_{label}', 3, $embedding) YIELD node, score "
+                        f"OPTIONAL MATCH (p:Person)-[r:PARTICIPATED_IN]->(node) "
+                        f"OPTIONAL MATCH (node)-[m:MENTIONS]->(mentioned:Person) "
+                        f"RETURN node, score, "
+                        f"collect(DISTINCT {{person: p.name, role: r.role}}) as participants, "
+                        f"collect(DISTINCT {{person: mentioned.name, sentiment: m.sentiment}}) as mentioned",
+                        embedding=query_embedding
+                    )  # type: ignore
+                    for rec in result:
+                        event = Event(**dict(rec["node"]))
+                        details = []
+                        participants = [p for p in rec["participants"] if p["person"]]
+                        if participants:
+                            details.append("👥 " + ", ".join(p["person"] for p in participants))
+                        mentioned = [m for m in rec["mentioned"] if m["person"]]
+                        if mentioned:
+                            details.append("💬 " + ", ".join(m["person"] for m in mentioned))
+                        detail_str = " | " + " | ".join(details) if details else ""
+                        all_results.append({"output": f"Event: {event}{detail_str}", "score": rec["score"]})
+                else:
+                    result = session.run(
+                        f"CALL db.index.vector.queryNodes('embedding_index_{label}', 3, $embedding) YIELD node, score RETURN node, score",
+                        embedding=query_embedding
+                    )  # type: ignore
+                    for rec in result:
+                        model_class = label_to_model[label]
+                        all_results.append({"output": f"{label}: {str(model_class(**dict(rec['node'])))}", "score": rec["score"]})
+            except Exception as e:
+                logger.warning(f"Vector search failed for {label}: {e}")
+        
+        all_results.sort(key=lambda x: x["score"], reverse=True)
+        output = [item["output"] for item in all_results[:10]]
+        return "\n".join(output) if output else "No results"
 
 
 @mcp.tool()

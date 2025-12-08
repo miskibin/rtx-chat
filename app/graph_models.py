@@ -60,6 +60,9 @@ class User(Neo4jModel):
     @property
     def _merge_key(self) -> dict:
         return {"name": self.name}
+    
+    def __str__(self) -> str:
+        return f"{self.name}: {self.profile_summary}"
 
 
 class Person(Neo4jModel):
@@ -74,6 +77,9 @@ class Person(Neo4jModel):
     @property
     def _merge_key(self) -> dict:
         return {"name": self.name}
+    
+    def __str__(self) -> str:
+        return f"{self.name}: {self.description}"
 
 
 class Event(Neo4jModel):
@@ -89,6 +95,10 @@ class Event(Neo4jModel):
     @property
     def _merge_key(self) -> dict:
         return {"date": self.date, "description": self.description}
+    
+    def __str__(self) -> str:
+        date_str = f"[{self.date}] " if self.date else ""
+        return f"{date_str}{self.description}"
 
 
 class Fact(Neo4jModel):
@@ -103,6 +113,9 @@ class Fact(Neo4jModel):
     @property
     def _merge_key(self) -> dict:
         return {"content": self.content}
+    
+    def __str__(self) -> str:
+        return f"{self.content} ({self.category})"
 
 
 class Preference(Neo4jModel):
@@ -116,6 +129,9 @@ class Preference(Neo4jModel):
     @property
     def _merge_key(self) -> dict:
         return {"instruction": self.instruction}
+    
+    def __str__(self) -> str:
+        return self.instruction
 
 
 class KnowsRelationship(BaseModel):
