@@ -319,6 +319,7 @@ export default function Home() {
                     toolCalls[idx] = {
                       ...toolCalls[idx],
                       status: "completed",
+                      input: data.input || toolCalls[idx].input,
                       output: data.output,
                       artifacts: data.artifacts,
                     };
@@ -633,17 +634,10 @@ export default function Home() {
                           if (item.type === "tool") {
                             const tool = item.data;
                             const key = `${msg.id}-tool-${tool.name}-${i}`;
-                            const isMemoryTool =
-                              tool.name === "save_memory" ||
-                              tool.name === "update_memory";
-                            const memoryText = String(
-                              tool.input?.memory_text ||
-                                tool.input?.new_text ||
-                                ""
-                            );
-                            const memoryType = String(
-                              tool.input?.memory_type || ""
-                            );
+                            const memoryTools = ["add_or_update_person", "add_event", "add_fact", "add_preference", "add_or_update_relationship"];
+                            const isMemoryTool = memoryTools.includes(tool.name);
+                            const memoryText = tool.input ? JSON.stringify(tool.input, null, 2) : "";
+                            const memoryType = tool.name.replace("add_", "").replace("or_update_", "");
 
                             if (isMemoryTool) {
                               return (
@@ -654,15 +648,9 @@ export default function Home() {
                                 >
                                   <TaskTrigger>
                                     <div className="flex cursor-pointer items-center gap-2 text-muted-foreground hover:text-foreground">
-                                      {tool.name === "save_memory" ? (
-                                        <PlusCircleIcon className="size-4 text-green-500" />
-                                      ) : (
-                                        <RefreshCcwIcon className="size-4 text-blue-500" />
-                                      )}
+                                      <PlusCircleIcon className="size-4 text-green-500" />
                                       <span className="text-sm">
-                                        {tool.name === "save_memory"
-                                          ? "Saving memory"
-                                          : "Updating memory"}
+                                        {tool.name.replace(/_/g, " ")}
                                       </span>
                                       {memoryType && (
                                         <span className="text-xs px-1.5 py-0.5 rounded bg-muted">

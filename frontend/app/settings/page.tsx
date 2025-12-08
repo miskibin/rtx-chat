@@ -23,11 +23,15 @@ export default function SettingsPage() {
   useEffect(() => {
     fetch(`${API_URL}/tools`).then(r => r.json()).then(d => {
       setTools(d.tools || [])
-      if (settings.enabledTools.length === 0) {
-        setLocalEnabledTools(new Set(d.tools.map((t: ToolInfo) => t.name)))
+      const toolNames = new Set(d.tools.map((t: ToolInfo) => t.name))
+      const validEnabled = settings.enabledTools.filter(t => toolNames.has(t))
+      if (validEnabled.length === 0) {
+        setLocalEnabledTools(toolNames)
+      } else {
+        setLocalEnabledTools(new Set(validEnabled))
       }
     })
-  }, [settings.enabledTools.length])
+  }, [])
 
   const handleToggleTool = (name: string) => {
     setLocalEnabledTools(prev => {

@@ -10,6 +10,7 @@ dependencies = [
     "crawl4ai>=0.7.7",
     "fastapi>=0.122.0",
     "langchain-experimental>=0.4.0",
+    "langchain-mcp-adapters>=0.1.14",
     "langchain-ollama>=1.0.0",
     "langchain-openai>=1.1.0",
     "langchain>=1.1.0",

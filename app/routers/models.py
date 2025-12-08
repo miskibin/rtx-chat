@@ -4,6 +4,7 @@ from loguru import logger
 
 from app.schemas import ModelsResponse, ModelInfo
 from app.tools import get_tools
+from app.memory_tools import get_memory_tools
 
 router = APIRouter(tags=["models"])
 
@@ -53,6 +54,8 @@ async def list_models():
     return ModelsResponse(models=models)
 
 @router.get("/tools")
-async def list_tools():
-    tools = get_tools()
-    return {"tools": [{"name": t.name, "description": t.description} for t in tools]}
+def list_tools():
+    memory_tools = get_memory_tools()
+    local_tools = get_tools()
+    all_tools = memory_tools + local_tools
+    return {"tools": [{"name": t.name, "description": t.description} for t in all_tools]}

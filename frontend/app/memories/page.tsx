@@ -5,52 +5,26 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
-import { Trash2Icon, DatabaseIcon, CalendarIcon, ArrowUpDown } from "lucide-react"
+import { Trash2Icon, DatabaseIcon, ArrowUpDown } from "lucide-react"
 import { ColumnDef, flexRender, getCoreRowModel, getFilteredRowModel, getPaginationRowModel, getSortedRowModel, SortingState, useReactTable, ColumnFiltersState } from "@tanstack/react-table"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-type MemoryType = "preference" | "fact" | "goal" | "event" | "person"
+type MemoryType = "Person" | "Event" | "Fact" | "Preference"
 
 type Memory = { 
   id: string
-  memory: string
-}
-
-type ParsedMemory = {
-  id: string
   type: MemoryType
-  summary: string
-  timestamp: string
-}
-
-const parseMemory = (mem: Memory): ParsedMemory => {
-  try {
-    const parsed = JSON.parse(mem.memory)
-    return {
-      id: parsed.id || mem.id,
-      type: parsed.type || "fact",
-      summary: parsed.summary || mem.memory,
-      timestamp: parsed.timestamp || ""
-    }
-  } catch {
-    return {
-      id: mem.id,
-      type: "fact",
-      summary: mem.memory,
-      timestamp: ""
-    }
-  }
+  content: string
 }
 
 const getTypeColor = (type: MemoryType) => {
   const colors: Record<MemoryType, string> = {
-    preference: "bg-green-100 text-green-800 border-green-300",
-    fact: "bg-blue-100 text-blue-800 border-blue-300",
-    goal: "bg-purple-100 text-purple-800 border-purple-300",
-    event: "bg-orange-100 text-orange-800 border-orange-300",
-    person: "bg-amber-100 text-amber-800 border-amber-300"
+    Person: "bg-amber-100 text-amber-800 border-amber-300",
+    Event: "bg-orange-100 text-orange-800 border-orange-300",
+    Fact: "bg-blue-100 text-blue-800 border-blue-300",
+    Preference: "bg-green-100 text-green-800 border-green-300",
   }
   return colors[type] || "bg-gray-100 text-gray-800 border-gray-300"
 }
@@ -72,82 +46,40 @@ export default function MemoriesPage() {
 
   const handleDelete = async (id: string) => {
     console.log("Deleting memory:", id)
-    await fetch(`${API_URL}/memories/${id}`, { method: "DELETE" })
+    await fetch(`${API_URL}/memories/${encodeURIComponent(id)}`, { method: "DELETE" })
     await loadMemories()
   }
 
-  const parsedData = useMemo(() => memories.map(parseMemory), [memories])
-
-  const columns = useMemo<ColumnDef<ParsedMemory>[]>(() => [
+  const columns = useMemo<ColumnDef<Memory>[]>(() => [
     {
       accessorKey: "type",
-      header: ({ column }) => {
-        return (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              console.log("Sort clicked")
-              column.toggleSorting(column.getIsSorted() === "asc")
-            }}
-          >
-            Type
-            <ArrowUpDown className="ml-2 h-4 w-4" />
-          </Button>
-        )
-      },
+      header: ({ column }) => (
+        <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          Type
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
       cell: ({ row }) => (
-        <Badge variant="outline" className={`text-xs capitalize ${getTypeColor(row.getValue("type"))}`}>
+        <Badge variant="outline" className={`text-xs ${getTypeColor(row.getValue("type"))}`}>
           {row.getValue("type")}
         </Badge>
       ),
     },
     {
-      accessorKey: "summary",
-      header: "Memory",
-      cell: ({ row }) => (
-        <p className="text-sm">{row.getValue("summary")}</p>
-      ),
-      meta: {
-        cellClassName: "whitespace-normal"
-      }
-    },
-    {
-      accessorKey: "timestamp",
-      header: ({ column }) => {
-        return (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              console.log("Date sort clicked")
-              column.toggleSorting(column.getIsSorted() === "asc")
-            }}
-          >
-            Date
-            <ArrowUpDown className="ml-2 h-4 w-4" />
-          </Button>
-        )
-      },
-      cell: ({ row }) => {
-        const timestamp = row.getValue("timestamp") as string
-        return timestamp ? (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <CalendarIcon className="size-3" />
-            {timestamp}
-          </div>
-        ) : null
-      },
+      accessorKey: "content",
+      header: "Content",
+      cell: ({ row }) => <p className="text-sm">{row.getValue("content")}</p>,
+      meta: { cellClassName: "whitespace-normal" }
     },
     {
       id: "actions",
       enableSorting: false,
-      enableHiding: false,
       cell: ({ row }) => (
         <button
           className="inline-flex items-center justify-center rounded-md hover:bg-accent size-8"
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            console.log("Delete clicked:", row.original.id)
             handleDelete(row.original.id)
           }}
         >
@@ -155,10 +87,10 @@ export default function MemoriesPage() {
         </button>
       ),
     },
-  ], [handleDelete])
+  ], [])
 
   const table = useReactTable({
-    data: parsedData,
+    data: memories,
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -166,15 +98,8 @@ export default function MemoriesPage() {
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    initialState: {
-      pagination: {
-        pageSize: 10,
-      },
-    },
-    state: {
-      sorting,
-      columnFilters,
-    },
+    initialState: { pagination: { pageSize: 10 } },
+    state: { sorting, columnFilters },
   })
 
   return (
@@ -191,8 +116,8 @@ export default function MemoriesPage() {
           <div className="flex items-center py-4">
             <Input 
               placeholder="Filter memories..." 
-              value={(table.getColumn("summary")?.getFilterValue() as string) ?? ""}
-              onChange={(e) => table.getColumn("summary")?.setFilterValue(e.target.value)}
+              value={(table.getColumn("content")?.getFilterValue() as string) ?? ""}
+              onChange={(e) => table.getColumn("content")?.setFilterValue(e.target.value)}
               className="max-w-sm" 
             />
           </div>
@@ -248,7 +173,7 @@ export default function MemoriesPage() {
 
           <div className="flex items-center justify-end space-x-2 py-4">
             <div className="flex-1 text-sm text-muted-foreground">
-              {table.getFilteredRowModel().rows.length} of {parsedData.length} row(s).
+              {table.getFilteredRowModel().rows.length} of {memories.length} row(s).
             </div>
             <div className="space-x-2">
               <Button

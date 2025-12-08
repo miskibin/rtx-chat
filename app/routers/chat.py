@@ -45,7 +45,7 @@ async def chat_stream(request: ChatRequest):
                     logger.info(f"Tool completed: {chunk['name']} (id: {tool_id})")
                     output = chunk["output"]
                     clean_output, artifacts = parse_artifacts(output)
-                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "output": clean_output, "artifacts": artifacts, "tool_id": tool_id})}
+                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "input": chunk.get("input", {}), "output": clean_output, "artifacts": artifacts, "tool_id": tool_id})}
                 elif chunk["type"] == "memories_saved":
                     logger.info(f"Memories saved: {chunk['memories']}")
                     yield {"data": json.dumps({"memories_saved": chunk["memories"]})}

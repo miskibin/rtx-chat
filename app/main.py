@@ -1,10 +1,20 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.routers import chat, models, memories, artifacts
+from neo4j_mcp import kg_initialize_database
 
-app = FastAPI(title="Ollama Chat API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing Neo4j database...")
+    kg_initialize_database()
+    yield
+
+
+app = FastAPI(title="Ollama Chat API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
