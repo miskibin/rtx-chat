@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
@@ -87,15 +87,23 @@ export default function MemoriesPage() {
     loadAll()
   }
 
-  const allItems: TableItem[] = [
+  const allItems: TableItem[] = useMemo(() => [
     ...people.map(p => ({ id: p.id, type: "Person" as MemoryType, content: p.name, extra: p.description, data: p })),
     ...events.map(e => ({ id: e.id, type: "Event" as MemoryType, content: e.description, extra: e.date, data: e })),
     ...memories.filter(m => m.type === "Fact" || m.type === "Preference").map(m => ({ id: m.id, type: m.type, content: m.content, data: m })),
-  ]
+  ], [people, events, memories])
 
-  const filteredByType = activeFilter === "all" ? allItems : allItems.filter(item => item.type === activeFilter)
+  const filteredByType = useMemo(() => 
+    activeFilter === "all" ? allItems : allItems.filter(item => item.type === activeFilter)
+  , [allItems, activeFilter])
 
-  const counts = { all: allItems.length, Person: people.length, Event: events.length, Fact: memories.filter(m => m.type === "Fact").length, Preference: memories.filter(m => m.type === "Preference").length }
+  const counts = useMemo(() => ({ 
+    all: allItems.length, 
+    Person: people.length, 
+    Event: events.length, 
+    Fact: memories.filter(m => m.type === "Fact").length, 
+    Preference: memories.filter(m => m.type === "Preference").length 
+  }), [allItems, people, events, memories])
 
   const columns: ColumnDef<TableItem>[] = [
     {
