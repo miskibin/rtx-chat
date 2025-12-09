@@ -1,10 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Path
 from neo4j import GraphDatabase
 from langchain_ollama import OllamaEmbeddings
 from loguru import logger
 import os
 from dotenv import load_dotenv
-from pyparsing import Optional
+from urllib.parse import unquote
 from app.schemas import MergeEntitiesRequest, EventUpdate, PersonUpdate, RelationshipUpdate
 
 load_dotenv()
@@ -97,13 +97,27 @@ async def list_events():
         ]
     return {"events": events}
 
+@router.delete("/memories/{memory_id:path}")
+async def delete_memory(memory_id: str):
+    decoded_id = unquote(memory_id)
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (n) WHERE elementId(n) = $id
+            DETACH DELETE n
+            RETURN count(n) as deleted
+        """, id=decoded_id)
+        record = result.single()
+        if record and record["deleted"] > 0:
+            logger.info(f"Deleted memory {decoded_id}")
+            return {"status": "deleted", "id": decoded_id}
+    return {"error": "Memory not found", "id": decoded_id}
+
 # --- NEW EDITING ENDPOINTS ---
 
-@router.patch("/memories/events/{memory_id}")
+@router.patch("/memories/events/{memory_id:path}")
 async def update_event(memory_id: str, update: EventUpdate):
-    """Updates event text/date and REGENERATES EMBEDDING."""
+    memory_id = unquote(memory_id)
     with driver.session() as session:
-        # 1. Fetch existing data to combine with updates
         existing = session.run("MATCH (e:Event) WHERE elementId(e) = $id RETURN e.description as d, e.date as t", id=memory_id).single()
         if not existing:
             return {"error": "Event not found"}
@@ -124,9 +138,9 @@ async def update_event(memory_id: str, update: EventUpdate):
         
     return {"status": "updated", "id": memory_id}
 
-@router.patch("/memories/people/{memory_id}")
+@router.patch("/memories/people/{memory_id:path}")
 async def update_person(memory_id: str, update: PersonUpdate):
-    """Updates person description and REGENERATES EMBEDDING."""
+    memory_id = unquote(memory_id)
     with driver.session() as session:
         existing = session.run("MATCH (p:Person) WHERE elementId(p) = $id RETURN p.name as name, p.description as d", id=memory_id).single()
         if not existing:
@@ -145,11 +159,10 @@ async def update_person(memory_id: str, update: PersonUpdate):
         
     return {"status": "updated", "id": memory_id}
 
-@router.patch("/memories/people/{memory_id}/relationship")
+@router.patch("/memories/people/{memory_id:path}/relationship")
 async def update_relationship(memory_id: str, update: RelationshipUpdate):
-    """Updates the relationship between User and this Person."""
+    memory_id = unquote(memory_id)
     with driver.session() as session:
-        # No embedding update needed here usually, unless you embed relationships specifically
         session.run("""
             MATCH (u:User)-[r:KNOWS]->(p:Person) 
             WHERE elementId(p) = $id
