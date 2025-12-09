@@ -80,6 +80,7 @@ import {
   PlusCircleIcon,
   RefreshCcwIcon,
   FileIcon,
+  EyeIcon,
 } from "lucide-react";
 import {
   useChatStore,
@@ -995,6 +996,9 @@ export default function Home() {
                         <PromptInputSelectItem key={m.name} value={m.name}>
                           <div className="flex items-center gap-2">
                             <span className="truncate">{m.name}</span>
+                            {m.supports_vision && (
+                              <EyeIcon className="size-3 text-muted-foreground" />
+                            )}
                             {m.supports_thinking && (
                               <BrainIcon className="size-3 text-muted-foreground" />
                             )}
