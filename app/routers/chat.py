@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.schemas import ChatRequest
 from app.agent import conversation, set_confirmation_result
+from app.tools import get_tool_category
 
 router = APIRouter(tags=["chat"])
 
@@ -59,22 +60,30 @@ async def chat_stream(request: ChatRequest):
                     yield {"data": json.dumps({"content": chunk["content"]})}
                 elif chunk["type"] == "tool_start":
                     tool_id = chunk.get("run_id", str(uuid.uuid4())[:8])
-                    logger.info(f"Tool started: {chunk['name']} (id: {tool_id})")
-                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "started", "input": chunk.get("input", {}), "tool_id": tool_id})}
+                    tool_name = chunk["name"]
+                    category = get_tool_category(tool_name)
+                    logger.info(f"Tool started: {tool_name} (id: {tool_id})")
+                    yield {"data": json.dumps({"tool_call": tool_name, "status": "started", "input": chunk.get("input", {}), "tool_id": tool_id, "category": category})}
                 elif chunk["type"] == "tool_end":
                     tool_id = chunk.get("run_id", "")
-                    logger.info(f"Tool completed: {chunk['name']} (id: {tool_id})")
+                    tool_name = chunk["name"]
+                    category = get_tool_category(tool_name)
+                    logger.info(f"Tool completed: {tool_name} (id: {tool_id})")
                     output = chunk["output"]
                     clean_output, artifacts = parse_artifacts(output)
-                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "input": chunk.get("input", {}), "output": clean_output, "artifacts": artifacts, "tool_id": tool_id})}
+                    yield {"data": json.dumps({"tool_call": tool_name, "status": "completed", "input": chunk.get("input", {}), "output": clean_output, "artifacts": artifacts, "tool_id": tool_id, "category": category})}
                 elif chunk["type"] == "tool_confirmation_required":
                     tool_id = chunk.get("tool_id", "")
-                    logger.info(f"Tool confirmation required: {chunk['name']} (id: {tool_id})")
-                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "pending_confirmation", "input": chunk.get("input", {}), "tool_id": tool_id})}
+                    tool_name = chunk["name"]
+                    category = get_tool_category(tool_name)
+                    logger.info(f"Tool confirmation required: {tool_name} (id: {tool_id})")
+                    yield {"data": json.dumps({"tool_call": tool_name, "status": "pending_confirmation", "input": chunk.get("input", {}), "tool_id": tool_id, "category": category})}
                 elif chunk["type"] == "tool_denied":
                     tool_id = chunk.get("tool_id", "")
-                    logger.info(f"Tool denied: {chunk['name']} (id: {tool_id})")
-                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "denied", "tool_id": tool_id})}
+                    tool_name = chunk["name"]
+                    category = get_tool_category(tool_name)
+                    logger.info(f"Tool denied: {tool_name} (id: {tool_id})")
+                    yield {"data": json.dumps({"tool_call": tool_name, "status": "denied", "tool_id": tool_id, "category": category})}
                 elif chunk["type"] == "memories_saved":
                     logger.info(f"Memories saved: {chunk['memories']}")
                     yield {"data": json.dumps({"memories_saved": chunk["memories"]})}

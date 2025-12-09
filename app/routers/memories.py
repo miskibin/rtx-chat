@@ -209,3 +209,48 @@ async def merge_entities(request: MergeEntitiesRequest):
         logger.info(f"Merged entity {request.duplicate_id} into {request.primary_id}")
     
     return {"status": "merged", "primary_id": request.primary_id, "merged_id": request.duplicate_id}
+
+
+@router.get("/memories/duplicates")
+async def find_duplicates(threshold: float = 0.85, limit: int = 10):
+    """Find potential duplicate memories based on embedding similarity."""
+    duplicates = []
+    
+    with driver.session() as session:
+        for label in ["Fact", "Preference", "Person", "Event"]:
+            result = session.run(f"""
+                MATCH (a:{label})
+                WHERE a.embedding IS NOT NULL
+                CALL db.index.vector.queryNodes('embedding_index_{label}', 5, a.embedding)
+                YIELD node as b, score
+                WHERE elementId(a) < elementId(b) AND score >= $threshold
+                RETURN elementId(a) as id1, elementId(b) as id2, score,
+                    CASE 
+                        WHEN '{label}' = 'Person' THEN a.name + ': ' + coalesce(a.description, '')
+                        WHEN '{label}' = 'Event' THEN '[' + a.date + '] ' + a.description
+                        WHEN '{label}' = 'Fact' THEN a.content
+                        WHEN '{label}' = 'Preference' THEN a.instruction
+                    END as content1,
+                    CASE 
+                        WHEN '{label}' = 'Person' THEN b.name + ': ' + coalesce(b.description, '')
+                        WHEN '{label}' = 'Event' THEN '[' + b.date + '] ' + b.description
+                        WHEN '{label}' = 'Fact' THEN b.content
+                        WHEN '{label}' = 'Preference' THEN b.instruction
+                    END as content2,
+                    '{label}' as type
+                ORDER BY score DESC
+                LIMIT $limit
+            """, threshold=threshold, limit=limit)
+            
+            for r in result:
+                duplicates.append({
+                    "id1": r["id1"],
+                    "id2": r["id2"],
+                    "content1": r["content1"],
+                    "content2": r["content2"],
+                    "score": r["score"],
+                    "type": r["type"]
+                })
+    
+    duplicates.sort(key=lambda x: x["score"], reverse=True)
+    return {"duplicates": duplicates[:limit]}

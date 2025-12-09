@@ -420,13 +420,14 @@ export default function Home() {
                     status: "started",
                     input: data.input,
                     id: toolId,
+                    category: data.category,
                   });
                 } else if (data.status === "pending_confirmation") {
                   const idx = toolCalls.findIndex((t) => t.id === toolId);
                   if (idx >= 0) {
-                    toolCalls[idx] = { ...toolCalls[idx], status: "pending_confirmation", input: data.input || toolCalls[idx].input };
+                    toolCalls[idx] = { ...toolCalls[idx], status: "pending_confirmation", input: data.input || toolCalls[idx].input, category: data.category || toolCalls[idx].category };
                   } else {
-                    toolCalls.push({ name: data.tool_call, status: "pending_confirmation", input: data.input, id: toolId });
+                    toolCalls.push({ name: data.tool_call, status: "pending_confirmation", input: data.input, id: toolId, category: data.category });
                   }
                 } else if (data.status === "denied") {
                   const idx = toolCalls.findIndex((t) => t.id === toolId);
@@ -442,6 +443,7 @@ export default function Home() {
                       input: data.input || toolCalls[idx].input,
                       output: data.output,
                       artifacts: data.artifacts,
+                      category: data.category || toolCalls[idx].category,
                     };
                   } else {
                     toolCalls.push({
@@ -451,6 +453,7 @@ export default function Home() {
                       output: data.output,
                       artifacts: data.artifacts,
                       id: toolId,
+                      category: data.category,
                     });
                   }
                 }
@@ -829,18 +832,7 @@ export default function Home() {
                           if (item.type === "tool") {
                             const tool = item.data;
                             const key = `${msg.id}-tool-${tool.name}-${i}`;
-                            const memoryTools = [
-                              "add_or_update_person",
-                              "add_event",
-                              "add_fact",
-                              "add_preference",
-                              "add_or_update_relationship",
-                              "update_fact_or_preference",
-                              "delete_memory",
-                            ];
-                            const isMemoryTool = memoryTools.includes(
-                              tool.name
-                            );
+                            const isMemoryTool = tool.category === "memory";
                             const memoryText = tool.input
                               ? JSON.stringify(tool.input, null, 2)
                               : "";

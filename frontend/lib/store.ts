@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
 type Attachment = { id: string; name: string; type: string; size: number; data: string }
-type ToolCall = { name: string; status: "started" | "completed" | "pending_confirmation" | "denied"; input?: Record<string, unknown>; output?: string; artifacts?: string[]; id?: string }
+type ToolCall = { name: string; status: "started" | "completed" | "pending_confirmation" | "denied"; input?: Record<string, unknown>; output?: string; artifacts?: string[]; id?: string; category?: string }
 type MemorySearchOp = { type: "search"; status: "started" | "completed"; query?: string; memories?: string[] }
 type MemoryOp = MemorySearchOp
 type ThinkingBlock = { id: string; content: string; isStreaming: boolean }

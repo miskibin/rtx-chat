@@ -12,6 +12,15 @@ TOOL_CATEGORIES = {
     "other": {"label": "Other", "getter": get_other_tools},
 }
 
+_tool_category_cache: dict[str, str] = {}
+
+def get_tool_category(tool_name: str) -> str:
+    if not _tool_category_cache:
+        for category, info in TOOL_CATEGORIES.items():
+            for tool in info["getter"]():
+                _tool_category_cache[tool.name] = category
+    return _tool_category_cache.get(tool_name, "other")
+
 
 def get_tools():
     tools = []

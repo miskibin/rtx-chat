@@ -23,6 +23,19 @@ def get_session():
     return _driver.session(database="neo4j")
 
 
+def check_duplicate(label: str, embedding: list[float], threshold: float = 0.93) -> tuple[bool, str | None, float]:
+    with get_session() as session:
+        result = session.run(
+            f"CALL db.index.vector.queryNodes('embedding_index_{label}', 1, $embedding) YIELD node, score RETURN node, score, elementId(node) as id",
+            embedding=embedding
+        ).single()
+        if result and result["score"] >= threshold:
+            node = result["node"]
+            content = node.get("content") or node.get("instruction") or node.get("description") or ""
+            return True, result["id"], result["score"], content
+        return False, None, 0.0, None
+
+
 def list_people() -> list[str]:
     with get_session() as session:
         result = session.run("MATCH (p:Person) RETURN p.name as name")
@@ -186,6 +199,10 @@ def add_event(description: str, participants: list[str], mentioned_people: list[
 def add_fact(content: str, category: str) -> str:
     """Add a fact about the user."""
     fact = Fact(content=content, category=category)
+    embedding = _embeddings.embed_query(fact.embedding_text)
+    is_dup, dup_id, score, existing = check_duplicate("Fact", embedding)
+    if is_dup:
+        return f"Similar fact already exists (similarity: {score:.2f}): '{existing}'. Use update_fact_or_preference with ID: {dup_id}"
     fact.save()
     with get_session() as session:
         session.run("MATCH (u:User) MATCH (f:Fact {content: $content}) MERGE (u)-[:HAS_FACT]->(f)", content=content)
@@ -196,6 +213,10 @@ def add_fact(content: str, category: str) -> str:
 def add_preference(instruction: str) -> str:
     """Add a user preference for AI behavior."""
     pref = Preference(instruction=instruction)
+    embedding = _embeddings.embed_query(pref.embedding_text)
+    is_dup, dup_id, score, existing = check_duplicate("Preference", embedding)
+    if is_dup:
+        return f"Similar preference already exists (similarity: {score:.2f}): '{existing}'. Use update_fact_or_preference with ID: {dup_id}"
     pref.save()
     with get_session() as session:
         session.run("MATCH (u:User) MATCH (p:Preference {instruction: $instruction}) MERGE (u)-[:HAS_PREFERENCE]->(p)", instruction=instruction)
