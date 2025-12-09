@@ -13,7 +13,7 @@ TOOL_CATEGORIES = {
 }
 
 
-def get_all_tools():
+def get_tools():
     tools = []
     for category_info in TOOL_CATEGORIES.values():
         tools.extend(category_info["getter"]())
@@ -37,6 +37,3 @@ def get_tools_by_category():
         }
     return result
 
-
-def get_tools():
-    return get_all_tools()

@@ -84,9 +84,8 @@ def create_agent(
     else:
         llm = ChatOllama(model=model_name, reasoning=True if supports_thinking else None)
 
-    memory_tools = get_memory_tools()
     local_tools = get_tools()
-    all_tools = memory_tools + local_tools
+    all_tools = local_tools
     
     tools = [t for t in all_tools if enabled_tools is None or t.name in enabled_tools] if enabled_tools else all_tools
     logger.info(f"Loaded {len(tools)} tools: {[t.name for t in tools]}")

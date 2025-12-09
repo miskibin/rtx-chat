@@ -1,12 +1,13 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
+type Attachment = { id: string; name: string; type: string; size: number; data: string }
 type ToolCall = { name: string; status: "started" | "completed"; input?: Record<string, unknown>; output?: string; artifacts?: string[]; id?: string }
 type MemorySearchOp = { type: "search"; status: "started" | "completed"; query?: string; memories?: string[] }
 type MemoryOp = MemorySearchOp
 type ThinkingBlock = { id: string; content: string; isStreaming: boolean }
 type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
-type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number }
+type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number; experimental_attachments?: Attachment[] }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean }
 
 type SystemPromptType = "normal" | "psychological"
@@ -76,4 +77,4 @@ export const useChatStore = create<ChatStore>()(
   )
 )
 
-export type { ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, Model, SystemPromptType }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, Model, SystemPromptType }

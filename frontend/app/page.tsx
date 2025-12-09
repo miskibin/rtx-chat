@@ -7,20 +7,34 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ui/ai/conversation";
-import { Message, MessageContent } from "@/components/ui/ai/message";
+import {
+  Message,
+  MessageContent,
+  MessageAttachments,
+  MessageAttachment,
+} from "@/components/ai-elements/message";
 import { Response } from "@/components/ui/ai/response";
 import {
   PromptInput,
+  PromptInputBody,
   PromptInputTextarea,
-  PromptInputToolbar,
+  PromptInputFooter,
   PromptInputTools,
   PromptInputSubmit,
-  PromptInputModelSelect,
-  PromptInputModelSelectTrigger,
-  PromptInputModelSelectContent,
-  PromptInputModelSelectItem,
-  PromptInputModelSelectValue,
-} from "@/components/ui/ai/prompt-input";
+  PromptInputSelect,
+  PromptInputSelectTrigger,
+  PromptInputSelectContent,
+  PromptInputSelectItem,
+  PromptInputSelectValue,
+  PromptInputActionMenu,
+  PromptInputActionMenuTrigger,
+  PromptInputActionMenuContent,
+  PromptInputActionAddAttachments,
+  PromptInputAttachments,
+  PromptInputAttachment,
+  PromptInputProvider,
+  usePromptInputController,
+} from "@/components/ai-elements/prompt-input";
 import { Loader } from "@/components/ui/ai/loader";
 import {
   Task,
@@ -66,6 +80,7 @@ import {
   XIcon,
   PlusCircleIcon,
   RefreshCcwIcon,
+  FileIcon,
 } from "lucide-react";
 import {
   useChatStore,
@@ -127,7 +142,11 @@ export default function Home() {
       });
   }, [selectedModel, setSelectedModel, setModels]);
 
-  const sendMessage = async (message: string, existingAssistantId?: string) => {
+  const sendMessage = async (
+    message: string,
+    files: Array<{ id: string; name: string; type: string; size: number; data: string }> = [],
+    existingAssistantId?: string
+  ) => {
     const assistantMsg = existingAssistantId
       ? {
           id: existingAssistantId,
@@ -147,12 +166,14 @@ export default function Home() {
         };
 
     let historyMessages: any[] = [];
+    const attachmentArray = Array.isArray(files) ? files : [];
 
     if (!existingAssistantId) {
       const userMsg = {
         id: crypto.randomUUID(),
         role: "user" as const,
         content: message,
+        experimental_attachments: attachmentArray,
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       historyMessages = [...messages, userMsg];
@@ -380,7 +401,7 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || status !== "ready") return;
-    await sendMessage(input);
+    await sendMessage(input, []);
   };
 
   const handleRegenerate = async (msgIndex: number) => {
@@ -560,6 +581,20 @@ export default function Home() {
             return (
               <div key={msg.id} className="group">
                 <Message from={msg.role}>
+                  {msg.role === "user" && Array.isArray(msg.experimental_attachments) && msg.experimental_attachments.length > 0 && (
+                    <MessageAttachments>
+                      {msg.experimental_attachments.map((attachment) => (
+                        <MessageAttachment
+                          key={attachment.id}
+                          data={{
+                            url: attachment.data,
+                            mediaType: attachment.type,
+                            filename: attachment.name,
+                          }}
+                        />
+                      ))}
+                    </MessageAttachments>
+                  )}
                   <MessageContent>
                     {msg.role === "user" ? (
                       editingMessageId === msg.id ? (
@@ -864,65 +899,99 @@ export default function Home() {
 
       <div className=" pb-4">
         <div className="mx-auto w-full max-w-3xl">
-          <PromptInput onSubmit={handleSubmit}>
-            <PromptInputTextarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={status === "streaming"}
-            />
-            <PromptInputToolbar>
-              <PromptInputTools>
-                <PromptInputModelSelect
-                  value={systemPrompt}
-                  onValueChange={(v) =>
-                    setSystemPrompt(v as "normal" | "psychological")
+          <PromptInputProvider>
+            <PromptInput
+              onSubmit={(message) => {
+                sendMessage(
+                  message.text,
+                  message.files.map((f) => ({
+                    id: f.url || "",
+                    name: f.filename || "attachment",
+                    type: f.mediaType || "application/octet-stream",
+                    size: 0,
+                    data: f.url || "",
+                  }))
+                );
+              }}
+              accept="image/*"
+              multiple
+            >
+              <PromptInputBody>
+                <PromptInputTextarea
+                  placeholder="What would you like to know?"
+                  disabled={status === "streaming"}
+                />
+              </PromptInputBody>
+
+              <PromptInputAttachments>
+                {(attachment) => (
+                  <PromptInputAttachment data={attachment} />
+                )}
+              </PromptInputAttachments>
+
+              <PromptInputFooter>
+                <PromptInputTools>
+                  <PromptInputActionMenu>
+                    <PromptInputActionMenuTrigger title="Add attachments" />
+                    <PromptInputActionMenuContent>
+                      <PromptInputActionAddAttachments />
+                    </PromptInputActionMenuContent>
+                  </PromptInputActionMenu>
+
+                  <PromptInputSelect
+                    value={systemPrompt}
+                    onValueChange={(v) =>
+                      setSystemPrompt(v as "normal" | "psychological")
+                    }
+                  >
+                    <PromptInputSelectTrigger className="w-[140px]">
+                      <PromptInputSelectValue placeholder="System" />
+                    </PromptInputSelectTrigger>
+                    <PromptInputSelectContent>
+                      <PromptInputSelectItem value="normal">
+                        Normal
+                      </PromptInputSelectItem>
+                      <PromptInputSelectItem value="psychological">
+                        Psychological
+                      </PromptInputSelectItem>
+                    </PromptInputSelectContent>
+                  </PromptInputSelect>
+
+                  <PromptInputSelect
+                    value={selectedModel}
+                    onValueChange={setSelectedModel}
+                  >
+                    <PromptInputSelectTrigger className="w-[180px]">
+                      <PromptInputSelectValue placeholder="Model" />
+                    </PromptInputSelectTrigger>
+                    <PromptInputSelectContent>
+                      {models
+                        .filter((m) => m.supports_tools)
+                        .map((m) => (
+                          <PromptInputSelectItem key={m.name} value={m.name}>
+                            <div className="flex items-center gap-2">
+                              <span className="truncate">{m.name}</span>
+                              {m.supports_thinking && (
+                                <BrainIcon className="size-3 text-muted-foreground" />
+                              )}
+                            </div>
+                          </PromptInputSelectItem>
+                        ))}
+                    </PromptInputSelectContent>
+                  </PromptInputSelect>
+                </PromptInputTools>
+
+                <PromptInputSubmit
+                  status={status}
+                  onClick={
+                    status === "streaming"
+                      ? () => abortRef.current?.abort()
+                      : undefined
                   }
-                >
-                  <PromptInputModelSelectTrigger className="w-[140px]">
-                    <PromptInputModelSelectValue placeholder="System" />
-                  </PromptInputModelSelectTrigger>
-                  <PromptInputModelSelectContent>
-                    <PromptInputModelSelectItem value="normal">
-                      Normal
-                    </PromptInputModelSelectItem>
-                    <PromptInputModelSelectItem value="psychological">
-                      Psychological
-                    </PromptInputModelSelectItem>
-                  </PromptInputModelSelectContent>
-                </PromptInputModelSelect>
-                <PromptInputModelSelect
-                  value={selectedModel}
-                  onValueChange={setSelectedModel}
-                >
-                  <PromptInputModelSelectTrigger className="w-[180px]">
-                    <PromptInputModelSelectValue placeholder="Model" />
-                  </PromptInputModelSelectTrigger>
-                  <PromptInputModelSelectContent>
-                    {models
-                      .filter((m) => m.supports_tools)
-                      .map((m) => (
-                        <PromptInputModelSelectItem key={m.name} value={m.name}>
-                          <div className="flex items-center gap-2">
-                            <span className="truncate">{m.name}</span>
-                            {m.supports_thinking && (
-                              <BrainIcon className="size-3 text-muted-foreground" />
-                            )}
-                          </div>
-                        </PromptInputModelSelectItem>
-                      ))}
-                  </PromptInputModelSelectContent>
-                </PromptInputModelSelect>
-              </PromptInputTools>
-              <PromptInputSubmit
-                status={status}
-                onClick={
-                  status === "streaming"
-                    ? () => abortRef.current?.abort()
-                    : undefined
-                }
-              />
-            </PromptInputToolbar>
-          </PromptInput>
+                />
+              </PromptInputFooter>
+            </PromptInput>
+          </PromptInputProvider>
         </div>
       </div>
     </SidebarInset>
