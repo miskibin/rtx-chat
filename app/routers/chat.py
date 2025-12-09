@@ -26,11 +26,22 @@ async def chat_stream(request: ChatRequest):
     async def event_generator():
         full_content = ""
         try:
-            # Convert Pydantic models to dicts if necessary, or just pass the list of objects if agent handles it.
-            # Agent expects list[dict].
             history = [m.model_dump() for m in request.messages] if request.messages else None
             
-            async for chunk in conversation.stream_response(request.message, request.system_prompt, history):
+            logger.info(f"Request message: {request.message[:100]}")
+            if history:
+                logger.info(f"History length: {len(history)}")
+                for i, h in enumerate(history):
+                    has_attachments = bool(h.get("experimental_attachments"))
+                    logger.info(f"  History[{i}]: role={h.get('role')}, has_attachments={has_attachments}, content={h.get('content', '')[:50]}")
+                    if has_attachments:
+                        logger.info(f"    Attachments: {len(h['experimental_attachments'])} items")
+            
+            async for chunk in conversation.stream_response(
+                request.message, 
+                request.system_prompt, 
+                history
+            ):
                 if chunk["type"] == "memory_search_start":
                     yield {"data": json.dumps({"memory": "search", "status": "started", "query": chunk["query"]})}
                 elif chunk["type"] == "memory_search_end":

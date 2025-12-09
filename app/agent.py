@@ -181,9 +181,22 @@ class ConversationManager:
 
         if history is not None:
             self.messages = [system_msg]
-            for msg in history:
+            logger.info(f"Processing history with {len(history)} message(s)")
+            for idx, msg in enumerate(history):
+                msg_attachments = msg.get("experimental_attachments")
                 if msg["role"] == "user":
-                    self.messages.append(HumanMessage(content=msg["content"]))
+                    if msg_attachments:
+                        logger.info(f"  History msg {idx}: user message with {len(msg_attachments)} attachment(s)")
+                        content_parts: list[dict] = [{"type": "text", "text": msg["content"]}]
+                        for att in msg_attachments:
+                            if att["type"].startswith("image/"):
+                                content_parts.append({
+                                    "type": "image_url",
+                                    "image_url": {"url": att["data"]}
+                                })
+                        self.messages.append(HumanMessage(content=content_parts))  # type: ignore
+                    else:
+                        self.messages.append(HumanMessage(content=msg["content"]))
                 elif msg["role"] == "assistant":
                     self.messages.append(AIMessage(content=msg["content"]))
         else:
@@ -203,6 +216,18 @@ class ConversationManager:
 
         agent = self.get_agent()
         config = {"recursion_limit": self.max_tool_runs * 2 + 1}
+
+        logger.info(f"Invoking agent with {len(self.messages)} messages")
+        for i, m in enumerate(self.messages):
+            msg_type = type(m).__name__
+            if isinstance(m.content, list):
+                logger.info(f"  Message {i} ({msg_type}): multi-part content with {len(m.content)} parts")
+                for j, part in enumerate(m.content):
+                    if isinstance(part, dict):
+                        logger.info(f"    Part {j}: {part.get('type', 'unknown')}")
+            else:
+                content_preview = str(m.content)[:100] if m.content else "<empty>"
+                logger.info(f"  Message {i} ({msg_type}): {content_preview}")
 
         full_response = ""
         full_thinking = ""

@@ -32,8 +32,7 @@ import {
   PromptInputActionAddAttachments,
   PromptInputAttachments,
   PromptInputAttachment,
-  PromptInputProvider,
-  usePromptInputController,
+  PromptInputHeader,
 } from "@/components/ai-elements/prompt-input";
 import { Loader } from "@/components/ui/ai/loader";
 import {
@@ -144,7 +143,13 @@ export default function Home() {
 
   const sendMessage = async (
     message: string,
-    files: Array<{ id: string; name: string; type: string; size: number; data: string }> = [],
+    files: Array<{
+      id: string;
+      name: string;
+      type: string;
+      size: number;
+      data: string;
+    }> = [],
     existingAssistantId?: string
   ) => {
     const assistantMsg = existingAssistantId
@@ -203,6 +208,7 @@ export default function Home() {
           messages: historyMessages.map((m) => ({
             role: m.role,
             content: m.content,
+            experimental_attachments: m.experimental_attachments,
           })),
           model: selectedModel || "qwen3:4b",
           system_prompt: systemPrompt || "psychological",
@@ -427,7 +433,7 @@ export default function Home() {
       })
     );
 
-    await sendMessage(userMsg.content, assistantMsg.id);
+    await sendMessage(userMsg.content, [], assistantMsg.id);
   };
 
   const handleEditStart = (msgId: string, content: string) => {
@@ -475,7 +481,7 @@ export default function Home() {
 
     setEditingMessageId(null);
     setEditContent("");
-    await sendMessage(editContent, newAssistantId);
+    await sendMessage(editContent, [], newAssistantId);
   };
 
   const handleCopy = (content: string) => {
@@ -581,20 +587,23 @@ export default function Home() {
             return (
               <div key={msg.id} className="group">
                 <Message from={msg.role}>
-                  {msg.role === "user" && Array.isArray(msg.experimental_attachments) && msg.experimental_attachments.length > 0 && (
-                    <MessageAttachments>
-                      {msg.experimental_attachments.map((attachment) => (
-                        <MessageAttachment
-                          key={attachment.id}
-                          data={{
-                            url: attachment.data,
-                            mediaType: attachment.type,
-                            filename: attachment.name,
-                          }}
-                        />
-                      ))}
-                    </MessageAttachments>
-                  )}
+                  {msg.role === "user" &&
+                    Array.isArray(msg.experimental_attachments) &&
+                    msg.experimental_attachments.length > 0 && (
+                      <MessageAttachments>
+                        {msg.experimental_attachments.map((attachment) => (
+                          <MessageAttachment
+                            key={attachment.id}
+                            data={{
+                              type: "file",
+                              url: attachment.data,
+                              mediaType: attachment.type,
+                              filename: attachment.name,
+                            }}
+                          />
+                        ))}
+                      </MessageAttachments>
+                    )}
                   <MessageContent>
                     {msg.role === "user" ? (
                       editingMessageId === msg.id ? (
@@ -694,10 +703,22 @@ export default function Home() {
                           if (item.type === "tool") {
                             const tool = item.data;
                             const key = `${msg.id}-tool-${tool.name}-${i}`;
-                            const memoryTools = ["add_or_update_person", "add_event", "add_fact", "add_preference", "add_or_update_relationship"];
-                            const isMemoryTool = memoryTools.includes(tool.name);
-                            const memoryText = tool.input ? JSON.stringify(tool.input, null, 2) : "";
-                            const memoryType = tool.name.replace("add_", "").replace("or_update_", "");
+                            const memoryTools = [
+                              "add_or_update_person",
+                              "add_event",
+                              "add_fact",
+                              "add_preference",
+                              "add_or_update_relationship",
+                            ];
+                            const isMemoryTool = memoryTools.includes(
+                              tool.name
+                            );
+                            const memoryText = tool.input
+                              ? JSON.stringify(tool.input, null, 2)
+                              : "";
+                            const memoryType = tool.name
+                              .replace("add_", "")
+                              .replace("or_update_", "");
 
                             if (isMemoryTool) {
                               return (
@@ -898,100 +919,100 @@ export default function Home() {
       </Conversation>
 
       <div className=" pb-4">
-        <div className="mx-auto w-full max-w-3xl">
-          <PromptInputProvider>
-            <PromptInput
-              onSubmit={(message) => {
-                sendMessage(
-                  message.text,
-                  message.files.map((f) => ({
-                    id: f.url || "",
-                    name: f.filename || "attachment",
-                    type: f.mediaType || "application/octet-stream",
-                    size: 0,
-                    data: f.url || "",
-                  }))
-                );
-              }}
-              accept="image/*"
-              multiple
+        <div className="mx-auto w-full  max-w-3xl">
+          <PromptInput
+            onSubmit={(message) => {
+              const hasText = Boolean(message.text);
+              const hasAttachments = Boolean(message.files?.length);
+              if (!(hasText || hasAttachments)) {
+                return;
+              }
+              sendMessage(
+                message.text || "Sent with attachments",
+                message.files?.map((f) => ({
+                  id: f.url || "",
+                  name: f.filename || "attachment",
+                  type: f.mediaType || "application/octet-stream",
+                  size: 0,
+                  data: f.url || "",
+                })) || []
+              );
+              setInput("");
+            }}
+            accept="image/*"
+            multiple
+            globalDrop
+          >
+            <PromptInputHeader
+            className="p-0 m-0"
             >
-              <PromptInputBody>
-                <PromptInputTextarea
-                  placeholder="What would you like to know?"
-                  disabled={status === "streaming"}
-                />
-              </PromptInputBody>
-
               <PromptInputAttachments>
-                {(attachment) => (
-                  <PromptInputAttachment data={attachment} />
-                )}
+                {(attachment) => <PromptInputAttachment data={attachment} />}
               </PromptInputAttachments>
+            </PromptInputHeader>
+            <PromptInputBody className="p-0">
+              <PromptInputTextarea
+                placeholder="What would you like to know?"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+              />
+            </PromptInputBody>
 
-              <PromptInputFooter>
-                <PromptInputTools>
-                  <PromptInputActionMenu>
-                    <PromptInputActionMenuTrigger title="Add attachments" />
-                    <PromptInputActionMenuContent>
-                      <PromptInputActionAddAttachments />
-                    </PromptInputActionMenuContent>
-                  </PromptInputActionMenu>
+            <PromptInputFooter  className="p-1">
+              <PromptInputTools>
+                <PromptInputActionMenu>
+                  <PromptInputActionMenuTrigger title="Add attachments" />
+                  <PromptInputActionMenuContent>
+                    <PromptInputActionAddAttachments />
+                  </PromptInputActionMenuContent>
+                </PromptInputActionMenu>
 
-                  <PromptInputSelect
-                    value={systemPrompt}
-                    onValueChange={(v) =>
-                      setSystemPrompt(v as "normal" | "psychological")
-                    }
-                  >
-                    <PromptInputSelectTrigger className="w-[140px]">
-                      <PromptInputSelectValue placeholder="System" />
-                    </PromptInputSelectTrigger>
-                    <PromptInputSelectContent>
-                      <PromptInputSelectItem value="normal">
-                        Normal
-                      </PromptInputSelectItem>
-                      <PromptInputSelectItem value="psychological">
-                        Psychological
-                      </PromptInputSelectItem>
-                    </PromptInputSelectContent>
-                  </PromptInputSelect>
-
-                  <PromptInputSelect
-                    value={selectedModel}
-                    onValueChange={setSelectedModel}
-                  >
-                    <PromptInputSelectTrigger className="w-[180px]">
-                      <PromptInputSelectValue placeholder="Model" />
-                    </PromptInputSelectTrigger>
-                    <PromptInputSelectContent>
-                      {models
-                        .filter((m) => m.supports_tools)
-                        .map((m) => (
-                          <PromptInputSelectItem key={m.name} value={m.name}>
-                            <div className="flex items-center gap-2">
-                              <span className="truncate">{m.name}</span>
-                              {m.supports_thinking && (
-                                <BrainIcon className="size-3 text-muted-foreground" />
-                              )}
-                            </div>
-                          </PromptInputSelectItem>
-                        ))}
-                    </PromptInputSelectContent>
-                  </PromptInputSelect>
-                </PromptInputTools>
-
-                <PromptInputSubmit
-                  status={status}
-                  onClick={
-                    status === "streaming"
-                      ? () => abortRef.current?.abort()
-                      : undefined
+                <PromptInputSelect
+                  value={systemPrompt}
+                  onValueChange={(v) =>
+                    setSystemPrompt(v as "normal" | "psychological")
                   }
-                />
-              </PromptInputFooter>
-            </PromptInput>
-          </PromptInputProvider>
+                >
+                  <PromptInputSelectTrigger className="w-[140px]">
+                    <PromptInputSelectValue placeholder="System" />
+                  </PromptInputSelectTrigger>
+                  <PromptInputSelectContent>
+                    <PromptInputSelectItem value="normal">
+                      Normal
+                    </PromptInputSelectItem>
+                    <PromptInputSelectItem value="psychological">
+                      Psychological
+                    </PromptInputSelectItem>
+                  </PromptInputSelectContent>
+                </PromptInputSelect>
+
+                <PromptInputSelect
+                  value={selectedModel}
+                  onValueChange={setSelectedModel}
+                >
+                  <PromptInputSelectTrigger className="w-[180px]">
+                    <PromptInputSelectValue placeholder="Model" />
+                  </PromptInputSelectTrigger>
+                  <PromptInputSelectContent>
+                    {models
+                      .filter((m) => m.supports_tools)
+                      .map((m) => (
+                        <PromptInputSelectItem key={m.name} value={m.name}>
+                          <div className="flex items-center gap-2">
+                            <span className="truncate">{m.name}</span>
+                            {m.supports_thinking && (
+                              <BrainIcon className="size-3 text-muted-foreground" />
+                            )}
+                          </div>
+                        </PromptInputSelectItem>
+                      ))}
+                  </PromptInputSelectContent>
+                </PromptInputSelect>
+              </PromptInputTools>
+
+              <PromptInputSubmit disabled={!input && status !== "streaming"} status={status} />
+            </PromptInputFooter>
+          </PromptInput>
         </div>
       </div>
     </SidebarInset>

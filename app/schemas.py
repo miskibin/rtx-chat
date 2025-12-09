@@ -1,9 +1,17 @@
 from typing import Optional
 from pydantic import BaseModel
 
+class Attachment(BaseModel):
+    id: str
+    name: str
+    type: str
+    size: int
+    data: str
+
 class ChatMessage(BaseModel):
     role: str
     content: str
+    experimental_attachments: list[Attachment] | None = None
 
 class ChatRequest(BaseModel):
     message: str
