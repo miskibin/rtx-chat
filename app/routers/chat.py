@@ -78,6 +78,15 @@ async def chat_stream(request: ChatRequest):
                 elif chunk["type"] == "memories_saved":
                     logger.info(f"Memories saved: {chunk['memories']}")
                     yield {"data": json.dumps({"memories_saved": chunk["memories"]})}
+                elif chunk["type"] == "metadata":
+                    yield {"data": json.dumps({
+                        "metadata": {
+                            "elapsed_time": chunk["elapsed_time"],
+                            "input_tokens": chunk["input_tokens"],
+                            "output_tokens": chunk["output_tokens"],
+                            "tokens_per_second": chunk["tokens_per_second"],
+                        }
+                    })}
                 elif chunk["type"] == "error":
                     logger.warning(f"Non-fatal error: {chunk['message']}")
                     yield {"data": json.dumps({"content": chunk["message"]})}

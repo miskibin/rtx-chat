@@ -75,6 +75,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   WrenchIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -88,6 +93,7 @@ import {
   XIcon,
   PlusCircleIcon,
   EyeIcon,
+  InfoIcon,
 } from "lucide-react";
 import {
   useChatStore,
@@ -347,6 +353,14 @@ export default function Home() {
             toast.error("Error", { description: data.error });
             setMessages((prev) => prev.filter((m) => m.id !== assistantMsg.id));
             break;
+          } else if (data.metadata) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMsg.id
+                  ? { ...m, metadata: data.metadata }
+                  : m
+              )
+            );
           } else if (data.done) {
             break;
           } else if (data.content) {
@@ -1067,6 +1081,37 @@ export default function Home() {
                       >
                         <CopyIcon className="size-4" />
                       </MessageAction>
+                      {msg.metadata && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" className="size-7">
+                              <InfoIcon className="size-4" />
+                              <span className="sr-only">Metadata</span>
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-3">
+                            <div className="space-y-2 text-sm">
+                              <div className="font-medium mb-2">Response Metadata</div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Time:</span>
+                                <span>{msg.metadata.elapsed_time}s</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Input tokens:</span>
+                                <span>{msg.metadata.input_tokens.toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Output tokens:</span>
+                                <span>{msg.metadata.output_tokens.toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Speed:</span>
+                                <span>{msg.metadata.tokens_per_second} tok/s</span>
+                              </div>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      )}
                     </MessageActions>
                     {hasBranches && (
                       <MessageBranchComponent
@@ -1188,7 +1233,17 @@ export default function Home() {
                 </PromptInputSelect>
               </PromptInputTools>
 
-              <PromptInputSubmit disabled={!input && status !== "streaming"} status={status} />
+              <PromptInputSubmit 
+                disabled={!input && status !== "streaming"} 
+                status={status}
+                onClick={(e) => {
+                  if (status === "streaming" && abortRef.current) {
+                    e.preventDefault();
+                    abortRef.current.abort();
+                    setStatus("ready");
+                  }
+                }}
+              />
             </PromptInputFooter>
           </PromptInput>
         </div>

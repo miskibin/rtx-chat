@@ -1,6 +1,9 @@
 import asyncio
+import nest_asyncio
 from langchain.tools import tool
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+
+nest_asyncio.apply()
 
 
 @tool
@@ -12,7 +15,9 @@ def read_website(url: str) -> str:
         async with AsyncWebCrawler(config=browser_config) as crawler:
             result = await crawler.arun(url=url, config=run_config)
             return result.markdown.raw_markdown[:50000] if result.success else f"Error: {result.error_message}"
-    return asyncio.run(crawl())
+    
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(crawl())
 
 
 def get_web_tools():

@@ -127,9 +127,11 @@ class ConversationManager:
         self.enabled_tools = mode.enabled_tools if mode.enabled_tools else None
         self.agent = None
         
-        yield {"type": "memory_search_start", "query": user_input[:100]}
-        memories_text = self.get_memories(user_input)
-        yield {"type": "memory_search_end", "memories": memories_text.split("\n") if memories_text else []}
+        memories_text = ""
+        if "{memories}" in mode.prompt:
+            yield {"type": "memory_search_start", "query": user_input[:100]}
+            memories_text = self.get_memories(user_input)
+            yield {"type": "memory_search_end", "memories": memories_text.split("\n") if memories_text else []}
 
         preferences = self.get_preferences()
         preferences_text = f"User preferences:\n{preferences}" if preferences else ""
@@ -196,6 +198,10 @@ class ConversationManager:
                 logger.info(f"  Message {i} ({msg_type}): {content_preview}")
 
         tool_runs = 0
+        start_time = datetime.now()
+        total_input_tokens = 0
+        total_output_tokens = 0
+        
         while tool_runs < self.max_tool_runs:
             pending_tool_calls = {}
             full_response = ""
@@ -226,17 +232,21 @@ class ConversationManager:
 
                 elif kind == "on_chat_model_end":
                     output = event.get("data", {}).get("output")
-                    if output and hasattr(output, "tool_calls") and output.tool_calls:
-                        for tc in output.tool_calls:
-                            tool_id = tc.get("id", str(len(pending_tool_calls)))
-                            tool_name = tc.get("name", "unknown")
-                            tool_args = tc.get("args", {})
-                            if tool_id not in pending_tool_calls:
-                                pending_tool_calls[tool_id] = {"name": tool_name, "args": tool_args}
-                                yield {"type": "tool_start", "name": tool_name, "input": tool_args, "run_id": tool_id}
-                            else:
-                                pending_tool_calls[tool_id]["args"] = tool_args
                     if output:
+                        usage = getattr(output, "usage_metadata", None)
+                        if usage:
+                            total_input_tokens += usage.get("input_tokens", 0)
+                            total_output_tokens += usage.get("output_tokens", 0)
+                        if hasattr(output, "tool_calls") and output.tool_calls:
+                            for tc in output.tool_calls:
+                                tool_id = tc.get("id", str(len(pending_tool_calls)))
+                                tool_name = tc.get("name", "unknown")
+                                tool_args = tc.get("args", {})
+                                if tool_id not in pending_tool_calls:
+                                    pending_tool_calls[tool_id] = {"name": tool_name, "args": tool_args}
+                                    yield {"type": "tool_start", "name": tool_name, "input": tool_args, "run_id": tool_id}
+                                else:
+                                    pending_tool_calls[tool_id]["args"] = tool_args
                         self.messages.append(output)
 
             if not pending_tool_calls:
@@ -274,6 +284,16 @@ class ConversationManager:
                 self.messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
             
             tool_runs += 1
+        
+        elapsed_time = (datetime.now() - start_time).total_seconds()
+        tokens_per_second = total_output_tokens / elapsed_time if elapsed_time > 0 else 0
+        yield {
+            "type": "metadata",
+            "elapsed_time": round(elapsed_time, 2),
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "tokens_per_second": round(tokens_per_second, 1),
+        }
 
     def clear(self):
         self.messages = []

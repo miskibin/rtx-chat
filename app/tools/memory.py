@@ -29,6 +29,8 @@ def list_people() -> list[str]:
         return [r["name"] for r in result]
 
 
+SIMILARITY_THRESHOLD = 0.8
+
 @tool
 def retrieve_context(query: str, entity_names: list[str] = [], node_labels: list[str] = [], limit: int = 5) -> str:
     """Search memories by query or entity names. Returns people, events, facts."""
@@ -66,8 +68,12 @@ def retrieve_context(query: str, entity_names: list[str] = [], node_labels: list
                     embedding=query_embedding, limit=limit
                 )
                 for rec in result:
+                    if rec["score"] < SIMILARITY_THRESHOLD:
+                        logger.debug(f"Skipping Person with score {rec['score']}")
+                        continue
                     person = Person(**dict(rec["node"]))
                     rel = f" → {rec['k']['relation_type']} ({rec['k']['sentiment']})" if rec["k"] else ""
+                    logger.debug(f"Retrieved Person: {person.name} (score: {rec['score']:.3f})")
                     all_results.append({"output": f"Person: {person}{rel} [ID: {rec['id']}]", "score": rec["score"]})
             elif label == "Event":
                 result = session.run(
@@ -77,9 +83,13 @@ def retrieve_context(query: str, entity_names: list[str] = [], node_labels: list
                     embedding=query_embedding, limit=limit
                 )
                 for rec in result:
+                    if rec["score"] < SIMILARITY_THRESHOLD:
+                        logger.debug(f"Skipping Event with score {rec['score']}")
+                        continue
                     event = Event(**dict(rec["node"]))
                     parts = [p for p in rec["participants"] if p]
                     detail = f" | 👥 {', '.join(parts)}" if parts else ""
+                    logger.debug(f"Retrieved Event: {event.description[:50]} (score: {rec['score']:.3f})")
                     all_results.append({"output": f"Event: {event}{detail} [ID: {rec['id']}]", "score": rec["score"]})
             else:
                 result = session.run(
@@ -87,8 +97,13 @@ def retrieve_context(query: str, entity_names: list[str] = [], node_labels: list
                     embedding=query_embedding, limit=limit
                 )
                 for rec in result:
+                    if rec["score"] < SIMILARITY_THRESHOLD:
+                        logger.debug(f"Skipping {label} with score {rec['score']}")
+                        continue
                     model = label_to_model[label]
-                    all_results.append({"output": f"{label}: {model(**dict(rec['node']))} [ID: {rec['id']}]", "score": rec["score"]})
+                    node_obj = model(**dict(rec['node']))
+                    logger.debug(f"Retrieved {label}: {str(node_obj)[:50]} (score: {rec['score']:.3f})")
+                    all_results.append({"output": f"{label}: {node_obj} [ID: {rec['id']}]", "score": rec["score"]})
         
         all_results.sort(key=lambda x: x["score"], reverse=True)
         return "\n".join(r["output"] for r in all_results[:limit]) or "No results"

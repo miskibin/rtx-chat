@@ -8,7 +8,8 @@ type MemoryOp = MemorySearchOp
 type ThinkingBlock = { id: string; content: string; isStreaming: boolean }
 type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
 type LiveContent = { content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
-type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; experimental_attachments?: Attachment[] }
+type MessageMetadata = { elapsed_time: number; input_tokens: number; output_tokens: number; tokens_per_second: number }
+type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; metadata?: MessageMetadata; experimental_attachments?: Attachment[] }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean; supports_vision: boolean }
 type PromptVariable = { name: string; desc: string }
 type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean }
@@ -75,4 +76,4 @@ export const useChatStore = create<ChatStore>()(
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, Model, ModeData, PromptVariable }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable }

@@ -20,6 +20,7 @@ dependencies = [
     "matplotlib>=3.10.7",
     "mcp[cli]>=1.23.1",
     "neo4j~=5.28.0",
+    "nest-asyncio>=1.6.0",
     "numpy>=2.3.5",
     "ollama>=0.6.1",
     "pandas>=2.3.3",

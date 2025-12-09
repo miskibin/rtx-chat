@@ -55,22 +55,69 @@ Memories are stored in a Neo4j graph database with vector embeddings (embeddingg
 
 ## System Prompts
 
-- **Normal** - General-purpose helpful assistant
-- **Psychological** - Compassionate support mode with empathetic guidelines
+Replaced by the new **Modes** system (see below).
 
-System prompts automatically inject:
-- Current datetime
-- User preferences
-- Retrieved memories
-- Memory management instructions (concise extraction vs. verbatim saving)
+## Modes
+
+Modes are configurable system prompt templates that control AI behavior, available tools, and memory settings. Modes are stored in Neo4j and can be created/edited via API or UI.
+
+### Mode Configuration
+
+Each mode includes:
+- **prompt** - System prompt template with variable placeholders
+- **enabled_tools** - List of tools the AI can use in this mode
+- **max_memories** - Maximum memories to retrieve per request
+- **max_tool_runs** - Maximum tool invocations per response
+- **is_template** - Whether this is a built-in template
+
+### Template Variables
+
+| Variable | Description |
+|----------|-------------|
+| `{datetime}` | Current date and time |
+| `{memories}` | Retrieved relevant memories (triggers memory search) |
+| `{user_preferences}` | User preferences from knowledge graph |
+| `{known_people}` | List of known people from memory |
+
+**Note:** Memory search is only performed if `{memories}` is present in the prompt.
+
+### Built-in Templates
+
+| Mode | Description | Tools | Max Memories |
+|------|-------------|-------|--------------|
+| **minimal** | Brief assistant, no memory tools | Code, Web, Filesystem | 3 |
+| **normal** | General-purpose with all tools | All | 5 |
+| **psychological** | Empathetic support with memory guidelines | All | 10 |
+
+### API Endpoints
+
+- `GET /modes` - List all modes with variables and available tools
+- `POST /modes` - Create new mode
+- `PUT /modes/{name}` - Update existing mode
+- `DELETE /modes/{name}` - Delete mode
 
 ## API Endpoints
 
+### Chat
 - `POST /chat/stream` - Stream chat response with memory integration
+- `POST /chat/confirm` - Confirm/deny pending tool calls
+
+### Models
 - `GET /models` - List available models with capabilities
+- `GET /tools` - List all available tools by category
+
+### Modes
+- `GET /modes` - List all modes with variables and available tools
+- `POST /modes` - Create new mode
+- `PUT /modes/{name}` - Update existing mode
+- `DELETE /modes/{name}` - Delete mode
+
+### Memories
 - `GET /memories/{entity_id}` - Retrieve specific memory
 - `POST /memories/merge` - Merge duplicate entities
 - `PUT /memories/{entity_id}` - Update memory
+
+### Artifacts
 - `GET /artifacts/{id}` - Serve generated files (charts, code output)
 
 ## Architecture
