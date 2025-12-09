@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   Conversation,
   ConversationContent,
@@ -113,14 +114,18 @@ export default function Home() {
       .then((d) => {
         const allModels = d.models || [];
         setModels(allModels);
-        const toolModels = allModels.filter(
-          (m: { supports_tools: boolean }) => m.supports_tools
-        );
-        if (toolModels.length > 0 && !selectedModel) {
-          setSelectedModel(toolModels[0].name);
+        if (!selectedModel || selectedModel.trim() === "") {
+          const toolModels = allModels.filter(
+            (m: { supports_tools: boolean }) => m.supports_tools
+          );
+          if (toolModels.length > 0) {
+            setSelectedModel(toolModels[0].name);
+          } else if (allModels.length > 0) {
+            setSelectedModel(allModels[0].name);
+          }
         }
       });
-  }, []);
+  }, [selectedModel, setSelectedModel, setModels]);
 
   const sendMessage = async (message: string, existingAssistantId?: string) => {
     const assistantMsg = existingAssistantId
@@ -178,8 +183,8 @@ export default function Home() {
             role: m.role,
             content: m.content,
           })),
-          model: selectedModel,
-          system_prompt: systemPrompt,
+          model: selectedModel || "qwen3:4b",
+          system_prompt: systemPrompt || "psychological",
           max_tool_runs: settings.maxToolRuns,
           max_memories: settings.maxMemories,
           enabled_tools:
@@ -269,6 +274,12 @@ export default function Home() {
                 })
               );
             }
+          } else if (data.error) {
+            toast.error("Error", { description: data.error });
+            setMessages((prev) => prev.filter((m) => m.id !== assistantMsg.id));
+            break;
+          } else if (data.done) {
+            break;
           } else if (data.content) {
             if (thinkingIdRef.current) {
               const currentId = thinkingIdRef.current;
@@ -355,15 +366,15 @@ export default function Home() {
         }
       }
     } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") {
-        // User cancelled - that's fine
-      } else {
-        console.error("Stream error:", e);
+      if (e instanceof Error && e.name !== "AbortError") {
+        toast.error("Connection error", { description: e.message });
+        setMessages((prev) => prev.filter((m) => m.id !== assistantMsg.id));
       }
+    } finally {
+      setOpenItems(new Set());
+      setStatus("ready");
+      setCurrentThinkingId(null);
     }
-    setOpenItems(new Set());
-    setStatus("ready");
-    setCurrentThinkingId(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
