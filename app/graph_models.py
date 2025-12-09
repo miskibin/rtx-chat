@@ -146,3 +146,36 @@ class ParticipatedInRelationship(BaseModel):
 
 class MentionsRelationship(BaseModel):
     sentiment: str | None = Field(default=None, description="e.g., 'positive', 'negative', 'neutral'. How they were talked about")
+
+
+class Mode(BaseModel):
+    name: str
+    prompt: str
+    enabled_tools: list[str] = []
+    max_memories: int = 5
+    max_tool_runs: int = 10
+    is_template: bool = False
+
+    def save(self):
+        with _driver.session() as session:
+            session.run(
+                "MERGE (m:Mode {name: $name}) SET m.prompt = $prompt, m.enabled_tools = $enabled_tools, m.max_memories = $max_memories, m.max_tool_runs = $max_tool_runs, m.is_template = $is_template",
+                **self.model_dump()
+            )
+        return self.name
+
+    @staticmethod
+    def get(name: str) -> "Mode | None":
+        with _driver.session() as session:
+            rec = session.run("MATCH (m:Mode {name: $name}) RETURN m", name=name).single()
+            return Mode(**dict(rec["m"])) if rec else None
+
+    @staticmethod
+    def all() -> list["Mode"]:
+        with _driver.session() as session:
+            return [Mode(**dict(r["m"])) for r in session.run("MATCH (m:Mode) RETURN DISTINCT m ORDER BY m.is_template DESC, m.name")]
+
+    @staticmethod
+    def delete(name: str):
+        with _driver.session() as session:
+            session.run("MATCH (m:Mode {name: $name}) DELETE m", name=name)

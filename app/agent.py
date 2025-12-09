@@ -13,28 +13,9 @@ dotenv.load_dotenv()
 from app.tools import get_tools
 from app.tools.memory import get_memory_tools, list_people, retrieve_context, get_user_preferences
 from app.tools.other import get_conversation_summary, set_conversation_summary
+from app.graph_models import Mode
 
-MEMORY_INSTRUCTION = """MEMORY MANAGEMENT:
-Save CONCISE, KEY information - don't copy user's words verbatim.
-
-CRITICAL RULES:
-1. EXTRACT KEY INFO - summarize, don't quote literally
-2. BE CONCISE - facts max 100 chars, events brief
-3. SAVE MULTIPLE ITEMS - split different topics into separate saves
-4. For relationship issues: use add_event + update person's sentiment
-
-EXAMPLES:
-❌ BAD: "User said Bob hurt him at work by taking credit for his project and when confronted Bob said user was being too sensitive and paranoid"
-✅ GOOD: add_event("Bob took credit for my project at work", participants=["Bob"]) + add_or_update_person("Bob", relation_type="colleague", sentiment="negative")
-
-❌ BAD: add_fact("User owns a red Tesla Model 3 that he bought last year and loves driving")  
-✅ GOOD: add_fact("Owns red Tesla Model 3", category="possession")
-
-{known_people}
-
-Save info immediately. NEVER mention saving in responses."""
-
-NORMAL_PROMPT = """You are a helpful AI assistant.
+DEFAULT_PROMPT = """You are a helpful AI assistant.
 Current date and time: {datetime}
 
 {user_preferences}
@@ -43,19 +24,10 @@ Current date and time: {datetime}
 
 Be concise and helpful."""
 
-PSYCH_PROMPT = """You are a compassionate psychological support assistant.
-Current date and time: {datetime}
 
-{user_preferences}
-
-{memories}
-
-Guidelines:
-- Be warm, empathetic, and non-judgmental
-- Ask thoughtful questions to understand deeper
-- Validate emotions before offering perspectives
-
-{memory_instruction}"""
+def get_mode(name: str) -> Mode:
+    mode = Mode.get(name)
+    return mode if mode else Mode(name="default", prompt=DEFAULT_PROMPT, enabled_tools=[], max_memories=5, max_tool_runs=10)
 
 
 def get_model_capabilities(model_name: str) -> list[str]:
@@ -127,13 +99,6 @@ class ConversationManager:
             self.capabilities = get_model_capabilities(model_name)
             self.agent = None
 
-    def set_settings(self, max_tool_runs: int = 10, max_memories: int = 5, enabled_tools: list[str] | None = None):
-        if max_tool_runs != self.max_tool_runs or enabled_tools != self.enabled_tools or max_memories != self.max_memories:
-            self.max_tool_runs = max_tool_runs
-            self.max_memories = max_memories
-            self.enabled_tools = enabled_tools
-            self.agent = None
-
     def get_agent(self):
         if self.agent is None:
             supports_thinking = "thinking" in self.capabilities
@@ -157,7 +122,13 @@ class ConversationManager:
     def get_people(self) -> list[str]:
         return list_people()
 
-    async def stream_response(self, user_input: str, system_prompt: str = "psychological", history: list[dict] | None = None):
+    async def stream_response(self, user_input: str, mode_name: str = "psychological", history: list[dict] | None = None):
+        mode = get_mode(mode_name)
+        self.max_memories = mode.max_memories
+        self.max_tool_runs = mode.max_tool_runs
+        self.enabled_tools = mode.enabled_tools if mode.enabled_tools else None
+        self.agent = None
+        
         yield {"type": "memory_search_start", "query": user_input[:100]}
         memories_text = self.get_memories(user_input)
         yield {"type": "memory_search_end", "memories": memories_text.split("\n") if memories_text else []}
@@ -167,15 +138,13 @@ class ConversationManager:
 
         people = self.get_people()
         known_people_text = f"Known people: {', '.join(people)}" if people else "No known people yet."
-        memory_instr = MEMORY_INSTRUCTION.format(known_people=known_people_text) if system_prompt == "psychological" else ""
 
-        prompt = PSYCH_PROMPT if system_prompt == "psychological" else NORMAL_PROMPT
         system_msg = SystemMessage(
-            content=prompt.format(
+            content=mode.prompt.format(
                 datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 user_preferences=preferences_text,
                 memories=f"Relevant memories:\n{memories_text}" if memories_text else "",
-                memory_instruction=memory_instr,
+                known_people=known_people_text,
             )
         )
 

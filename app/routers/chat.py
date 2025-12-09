@@ -21,7 +21,6 @@ def parse_artifacts(output: str) -> tuple[str, list[str]]:
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     conversation.set_model(request.model)
-    conversation.set_settings(request.max_tool_runs, request.max_memories, request.enabled_tools)
     
     async def event_generator():
         full_content = ""
@@ -39,7 +38,7 @@ async def chat_stream(request: ChatRequest):
             
             async for chunk in conversation.stream_response(
                 request.message, 
-                request.system_prompt, 
+                request.mode, 
                 history
             ):
                 if chunk["type"] == "memory_search_start":

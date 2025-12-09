@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.routers import chat, models, memories, artifacts
+from app.routers import chat, models, memories, artifacts, modes
 from neo4j_mcp import kg_initialize_database
 
 
@@ -28,6 +28,7 @@ app.include_router(chat.router)
 app.include_router(models.router)
 app.include_router(memories.router)
 app.include_router(artifacts.router)
+app.include_router(modes.router)
 
 
 @app.get("/health")

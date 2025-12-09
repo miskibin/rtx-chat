@@ -9,14 +9,8 @@ type ThinkingBlock = { id: string; content: string; isStreaming: boolean }
 type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
 type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number; experimental_attachments?: Attachment[] }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean }
-
-type SystemPromptType = "normal" | "psychological"
-
-type Settings = {
-  maxToolRuns: number
-  maxMemories: number
-  enabledTools: string[]
-}
+type PromptVariable = { name: string; desc: string }
+type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean }
 
 type ChatStore = {
   messages: MessageType[]
@@ -26,8 +20,10 @@ type ChatStore = {
   selectedModel: string
   currentThinkingId: string | null
   editingMessageId: string | null
-  systemPrompt: SystemPromptType
-  settings: Settings
+  selectedMode: string
+  availableModes: ModeData[]
+  promptVariables: PromptVariable[]
+  allTools: string[]
   setMessages: (fn: (msgs: MessageType[]) => MessageType[]) => void
   addMessage: (msg: MessageType) => void
   setInput: (input: string) => void
@@ -36,8 +32,8 @@ type ChatStore = {
   setSelectedModel: (model: string) => void
   setCurrentThinkingId: (id: string | null) => void
   setEditingMessageId: (id: string | null) => void
-  setSystemPrompt: (prompt: SystemPromptType) => void
-  setSettings: (settings: Partial<Settings>) => void
+  setSelectedMode: (mode: string) => void
+  setAvailableModes: (modes: ModeData[], variables: PromptVariable[], allTools: string[]) => void
   clearMessages: () => void
 }
 
@@ -51,8 +47,10 @@ export const useChatStore = create<ChatStore>()(
       selectedModel: "qwen3:4b",
       currentThinkingId: null,
       editingMessageId: null,
-      systemPrompt: "psychological",
-      settings: { maxToolRuns: 10, maxMemories: 5, enabledTools: [] },
+      selectedMode: "psychological",
+      availableModes: [],
+      promptVariables: [],
+      allTools: [],
       setMessages: (fn) => set((state) => ({ messages: fn(state.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setInput: (input) => set({ input }),
@@ -61,8 +59,8 @@ export const useChatStore = create<ChatStore>()(
       setSelectedModel: (selectedModel) => set({ selectedModel }),
       setCurrentThinkingId: (currentThinkingId) => set({ currentThinkingId }),
       setEditingMessageId: (editingMessageId) => set({ editingMessageId }),
-      setSystemPrompt: (systemPrompt) => set({ systemPrompt }),
-      setSettings: (settings) => set((s) => ({ settings: { ...s.settings, ...settings } })),
+      setSelectedMode: (selectedMode) => set({ selectedMode }),
+      setAvailableModes: (modes, variables, allTools) => set({ availableModes: modes, promptVariables: variables, allTools }),
       clearMessages: () => set({ messages: [] }),
     }),
     {
@@ -70,11 +68,10 @@ export const useChatStore = create<ChatStore>()(
       partialize: (state) => ({
         messages: state.messages,
         selectedModel: state.selectedModel,
-        systemPrompt: state.systemPrompt,
-        settings: state.settings,
+        selectedMode: state.selectedMode,
       }),
     }
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, Model, SystemPromptType }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, Model, ModeData, PromptVariable }

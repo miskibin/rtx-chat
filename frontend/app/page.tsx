@@ -112,9 +112,10 @@ export default function Home() {
     setCurrentThinkingId,
     editingMessageId,
     setEditingMessageId,
-    systemPrompt,
-    setSystemPrompt,
-    settings,
+    selectedMode,
+    setSelectedMode,
+    availableModes,
+    setAvailableModes,
   } = useChatStore();
   const abortRef = useRef<AbortController | null>(null);
   const thinkingIdRef = useRef<string | null>(null);
@@ -123,6 +124,7 @@ export default function Home() {
   const [editContent, setEditContent] = useState("");
 
   useEffect(() => {
+    fetch(`${API_URL}/modes`).then(r => r.json()).then(d => setAvailableModes(d.modes || [], d.variables || [], d.all_tools || []))
     fetch(`${API_URL}/models`)
       .then((r) => r.json())
       .then((d) => {
@@ -211,11 +213,7 @@ export default function Home() {
             experimental_attachments: m.experimental_attachments,
           })),
           model: selectedModel || "qwen3:4b",
-          system_prompt: systemPrompt || "psychological",
-          max_tool_runs: settings.maxToolRuns,
-          max_memories: settings.maxMemories,
-          enabled_tools:
-            settings.enabledTools.length > 0 ? settings.enabledTools : null,
+          mode: selectedMode || "psychological",
         }),
         signal: abortRef.current.signal,
       });
@@ -968,21 +966,18 @@ export default function Home() {
                 </PromptInputActionMenu>
 
                 <PromptInputSelect
-                  value={systemPrompt}
-                  onValueChange={(v) =>
-                    setSystemPrompt(v as "normal" | "psychological")
-                  }
+                  value={selectedMode}
+                  onValueChange={(v) => setSelectedMode(v)}
                 >
                   <PromptInputSelectTrigger className="w-[140px]">
-                    <PromptInputSelectValue placeholder="System" />
+                    <PromptInputSelectValue placeholder="Mode" />
                   </PromptInputSelectTrigger>
                   <PromptInputSelectContent>
-                    <PromptInputSelectItem value="normal">
-                      Normal
-                    </PromptInputSelectItem>
-                    <PromptInputSelectItem value="psychological">
-                      Psychological
-                    </PromptInputSelectItem>
+                    {availableModes.map((m) => (
+                      <PromptInputSelectItem key={m.name} value={m.name}>
+                        {m.name}
+                      </PromptInputSelectItem>
+                    ))}
                   </PromptInputSelectContent>
                 </PromptInputSelect>
 
