@@ -14,19 +14,24 @@ from app.tools import get_tools, get_conversation_summary, set_conversation_summ
 from app.memory_tools import get_memory_tools, list_people, kg_retrieve_context, kg_get_user_preferences
 
 MEMORY_INSTRUCTION = """MEMORY MANAGEMENT:
-You have access to a knowledge graph memory system. Use these tools:
-- kg_retrieve_context: Search for relevant memories (people, events, facts)
-- add_or_update_person: Save info about people user mentions
-- add_event: Save significant events/experiences  
-- add_fact: Save facts about the user
-- add_preference: Save user preferences for chat behavior
-- update_fact: Update an existing fact (use ID from context)
-- update_preference: Update an existing preference (use ID from context)
+Save CONCISE, KEY information - don't copy user's words verbatim.
+
+CRITICAL RULES:
+1. EXTRACT KEY INFO - summarize, don't quote literally
+2. BE CONCISE - facts max 100 chars, events brief
+3. SAVE MULTIPLE ITEMS - split different topics into separate saves
+4. For relationship issues: use add_event + update person's sentiment
+
+EXAMPLES:
+❌ BAD: "User said Bob hurt him at work by taking credit for his project and when confronted Bob said user was being too sensitive and paranoid"
+✅ GOOD: add_event("Bob took credit for my project at work", participants=["Bob"]) + add_or_update_person("Bob", relation_type="colleague", sentiment="negative")
+
+❌ BAD: add_fact("User owns a red Tesla Model 3 that he bought last year and loves driving")  
+✅ GOOD: add_fact("Owns red Tesla Model 3", category="possession")
 
 {known_people}
 
-Save important info immediately when user shares it. Query memories when context is needed.
-IMPORTANT: When user asks to correct/update a fact, ALWAYS use update_fact/update_preference with the ID from context. DO NOT create a new fact unless it's completely new information."""
+Save info immediately. NEVER mention saving in responses."""
 
 NORMAL_PROMPT = """You are a helpful AI assistant.
 Current date and time: {datetime}
