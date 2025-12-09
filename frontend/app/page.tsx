@@ -12,8 +12,17 @@ import {
   MessageContent,
   MessageAttachments,
   MessageAttachment,
+  MessageActions,
+  MessageAction,
+  MessageBranch as MessageBranchComponent,
+  MessageBranchContent,
+  MessageBranchSelector,
+  MessageBranchPrevious,
+  MessageBranchNext,
+  MessageBranchPage,
+  MessageResponse,
+  MessageToolbar,
 } from "@/components/ai-elements/message";
-import { Response } from "@/components/ui/ai/response";
 import {
   PromptInput,
   PromptInputBody,
@@ -46,14 +55,14 @@ import {
   ReasoningTrigger,
   ReasoningContent,
 } from "@/components/ui/ai/reasoning";
-import { Actions, Action } from "@/components/ui/ai/actions";
 import {
-  Branch,
-  BranchSelector,
-  BranchPrevious,
-  BranchNext,
-  BranchPage,
-} from "@/components/ui/ai/branch";
+  Confirmation,
+  ConfirmationRequest,
+  ConfirmationActions,
+  ConfirmationAction,
+  ConfirmationAccepted,
+  ConfirmationRejected,
+} from "@/components/ai-elements/confirmation";
 import { SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import {
   CodeBlock,
@@ -78,8 +87,6 @@ import {
   CheckIcon,
   XIcon,
   PlusCircleIcon,
-  RefreshCcwIcon,
-  FileIcon,
   EyeIcon,
 } from "lucide-react";
 import {
@@ -96,6 +103,35 @@ type StreamItem =
   | { type: "memory"; data: MemoryOp }
   | { type: "thinking"; data: ThinkingBlock }
   | { type: "tool"; data: ToolCall };
+
+function formatToolInput(toolName: string, input: Record<string, unknown> | undefined): string {
+  if (!input) return "";
+  const labels: Record<string, string> = {
+    name: "Name",
+    description: "Description",
+    relation_type: "Relation",
+    sentiment: "Sentiment",
+    content: "Content",
+    category: "Category",
+    instruction: "Instruction",
+    participants: "Participants",
+    mentioned_people: "Mentioned",
+    date: "Date",
+    start_person: "From",
+    end_person: "To",
+    item_id: "Item ID",
+    new_content: "New Content",
+    new_instruction: "New Instruction",
+  };
+  return Object.entries(input)
+    .filter(([_, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => {
+      const label = labels[k] || k.replace(/_/g, " ");
+      const value = Array.isArray(v) ? v.join(", ") : String(v);
+      return `${label}: ${value}`;
+    })
+    .join("\n");
+}
 
 export default function Home() {
   const {
@@ -187,7 +223,14 @@ export default function Home() {
       historyMessages = [...messages, userMsg];
     } else {
       setMessages((prev) =>
-        prev.map((m) => (m.id === existingAssistantId ? assistantMsg : m))
+        prev.map((m) => {
+          if (m.id !== existingAssistantId) return m;
+          return {
+            ...assistantMsg,
+            branches: m.branches,
+            currentBranch: m.currentBranch,
+          };
+        })
       );
       const index = messages.findIndex((m) => m.id === existingAssistantId);
       if (index !== -1) {
@@ -350,7 +393,7 @@ export default function Home() {
             const toolId =
               data.tool_id || `${data.tool_call}-${++toolIdCounterRef.current}`;
             const toolKey = `${assistantMsg.id}-tool-${toolId}`;
-            if (data.status === "started") {
+            if (data.status === "started" || data.status === "pending_confirmation") {
               setOpenItems((prev) => new Set(prev).add(toolKey));
             }
             setMessages((prev) =>
@@ -364,6 +407,18 @@ export default function Home() {
                     input: data.input,
                     id: toolId,
                   });
+                } else if (data.status === "pending_confirmation") {
+                  const idx = toolCalls.findIndex((t) => t.id === toolId);
+                  if (idx >= 0) {
+                    toolCalls[idx] = { ...toolCalls[idx], status: "pending_confirmation", input: data.input || toolCalls[idx].input };
+                  } else {
+                    toolCalls.push({ name: data.tool_call, status: "pending_confirmation", input: data.input, id: toolId });
+                  }
+                } else if (data.status === "denied") {
+                  const idx = toolCalls.findIndex((t) => t.id === toolId);
+                  if (idx >= 0) {
+                    toolCalls[idx] = { ...toolCalls[idx], status: "denied" };
+                  }
                 } else {
                   const idx = toolCalls.findIndex((t) => t.id === toolId);
                   if (idx >= 0) {
@@ -416,19 +471,33 @@ export default function Home() {
     if (!userMsg || userMsg.role !== "user") return;
 
     const assistantMsg = messages[msgIndex];
-    const currentBranch: MessageBranch = {
+    const currentIdx = assistantMsg.currentBranch ?? (assistantMsg.branches?.length || 0);
+    
+    let contentToSave = assistantMsg.content;
+    let thinkingToSave = assistantMsg.thinkingBlocks;
+    let toolsToSave = assistantMsg.toolCalls;
+    let memoryToSave = assistantMsg.memoryOps;
+    
+    if (currentIdx === (assistantMsg.branches?.length || 0) && assistantMsg.liveContent) {
+      contentToSave = assistantMsg.liveContent.content;
+      thinkingToSave = assistantMsg.liveContent.thinkingBlocks;
+      toolsToSave = assistantMsg.liveContent.toolCalls;
+      memoryToSave = assistantMsg.liveContent.memoryOps;
+    }
+    
+    const newBranch: MessageBranch = {
       id: crypto.randomUUID(),
-      content: assistantMsg.content,
-      thinkingBlocks: assistantMsg.thinkingBlocks,
-      toolCalls: assistantMsg.toolCalls,
-      memoryOps: assistantMsg.memoryOps,
+      content: contentToSave,
+      thinkingBlocks: thinkingToSave,
+      toolCalls: toolsToSave,
+      memoryOps: memoryToSave,
     };
 
     setMessages((prev) =>
       prev.map((m, i) => {
         if (i !== msgIndex) return m;
-        const branches = [...(m.branches || []), currentBranch];
-        return { ...m, branches, currentBranch: branches.length };
+        const branches = [...(m.branches || []), newBranch];
+        return { ...m, branches, currentBranch: branches.length, liveContent: undefined };
       })
     );
 
@@ -491,14 +560,50 @@ export default function Home() {
     setMessages((prev) =>
       prev.map((m, i) => {
         if (i !== msgIndex) return m;
-        const branches = m.branches || [];
-        if (branchIndex === branches.length) {
-          return { ...m, currentBranch: branchIndex };
+        const branches = [...(m.branches || [])];
+        const totalBranches = branches.length + 1;
+        const currentIdx = m.currentBranch ?? branches.length;
+        
+        if (branchIndex === currentIdx || branchIndex >= totalBranches) return m;
+        
+        let liveContent = m.liveContent;
+        
+        if (currentIdx === branches.length) {
+          liveContent = {
+            content: m.content,
+            thinkingBlocks: m.thinkingBlocks,
+            toolCalls: m.toolCalls,
+            memoryOps: m.memoryOps,
+          };
+        } else if (currentIdx < branches.length) {
+          branches[currentIdx] = {
+            ...branches[currentIdx],
+            content: m.content,
+            thinkingBlocks: m.thinkingBlocks,
+            toolCalls: m.toolCalls,
+            memoryOps: m.memoryOps,
+          };
         }
+        
+        if (branchIndex === branches.length && liveContent) {
+          return {
+            ...m,
+            currentBranch: branchIndex,
+            branches,
+            liveContent,
+            content: liveContent.content,
+            thinkingBlocks: liveContent.thinkingBlocks,
+            toolCalls: liveContent.toolCalls,
+            memoryOps: liveContent.memoryOps,
+          };
+        }
+        
         const branch = branches[branchIndex];
         return {
           ...m,
           currentBranch: branchIndex,
+          branches,
+          liveContent,
           content: branch.content,
           thinkingBlocks: branch.thinkingBlocks,
           toolCalls: branch.toolCalls,
@@ -516,6 +621,14 @@ export default function Home() {
       else next.add(key);
       return next;
     });
+
+  const handleToolConfirmation = async (toolId: string, approved: boolean) => {
+    await fetch(`${API_URL}/chat/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool_id: toolId, approved }),
+    });
+  };
 
   const renderCodeInput = (code: string) => (
     <CodeBlock
@@ -708,6 +821,7 @@ export default function Home() {
                               "add_fact",
                               "add_preference",
                               "add_or_update_relationship",
+                              "update_fact_or_preference",
                             ];
                             const isMemoryTool = memoryTools.includes(
                               tool.name
@@ -718,8 +832,63 @@ export default function Home() {
                             const memoryType = tool.name
                               .replace("add_", "")
                               .replace("or_update_", "");
+                            const humanReadableInput = formatToolInput(tool.name, tool.input);
 
                             if (isMemoryTool) {
+                              if (tool.status === "pending_confirmation") {
+                                return (
+                                  <Confirmation
+                                    key={`tool-${i}`}
+                                    approval={{ id: tool.id || "" }}
+                                    state="approval-requested"
+                                    className="w-full"
+                                  >
+                                    <ConfirmationRequest>
+                                      <div className="flex flex-col gap-3 w-full">
+                                        <div className="flex items-center gap-2">
+                                          <PlusCircleIcon className="size-5 text-amber-500" />
+                                          <span className="font-medium text-base">{tool.name.replace(/_/g, " ")}</span>
+                                          <span className="text-xs px-2 py-0.5 rounded bg-amber-500/10 text-amber-600">{memoryType}</span>
+                                        </div>
+                                        <div className="text-sm text-foreground whitespace-pre-wrap bg-muted/50 p-3 rounded-md">
+                                          {humanReadableInput}
+                                        </div>
+                                      </div>
+                                    </ConfirmationRequest>
+                                    <ConfirmationActions>
+                                      <ConfirmationAction
+                                        variant="outline"
+                                        onClick={() => handleToolConfirmation(tool.id || "", false)}
+                                      >
+                                        Deny
+                                      </ConfirmationAction>
+                                      <ConfirmationAction
+                                        onClick={() => handleToolConfirmation(tool.id || "", true)}
+                                      >
+                                        Allow
+                                      </ConfirmationAction>
+                                    </ConfirmationActions>
+                                  </Confirmation>
+                                );
+                              }
+
+                              if (tool.status === "denied") {
+                                return (
+                                  <Confirmation
+                                    key={`tool-${i}`}
+                                    approval={{ id: tool.id || "", approved: false }}
+                                    state="output-denied"
+                                  >
+                                    <ConfirmationRejected>
+                                      <div className="flex items-center gap-2 text-muted-foreground">
+                                        <XIcon className="size-4 text-red-500" />
+                                        <span className="text-sm">{tool.name.replace(/_/g, " ")} denied</span>
+                                      </div>
+                                    </ConfirmationRejected>
+                                  </Confirmation>
+                                );
+                              }
+
                               return (
                                 <Task
                                   key={`tool-${i}`}
@@ -829,9 +998,9 @@ export default function Home() {
                           return null;
                         })}
                         {msg.content ? (
-                          <Response defaultOrigin="http://localhost:8000">
+                          <MessageResponse>
                             {msg.content}
-                          </Response>
+                          </MessageResponse>
                         ) : (
                           !msg.toolCalls?.length &&
                           !msg.thinkingBlocks?.length &&
@@ -846,69 +1015,79 @@ export default function Home() {
                 </Message>
 
                 {msg.role === "user" && editingMessageId !== msg.id && (
-                  <div className="flex justify-end items-center gap-2 -mt-3 mb-2 mr-1">
+                  <MessageToolbar className="justify-end mt-1">
                     {hasBranches && (
-                      <Branch
+                      <MessageBranchComponent
                         defaultBranch={currentBranchIdx}
                         onBranchChange={(idx) =>
                           handleBranchChange(msgIndex, idx)
                         }
                       >
-                        <BranchSelector from="user">
-                          <BranchPrevious />
-                          <BranchPage />
-                          <BranchNext />
-                        </BranchSelector>
-                      </Branch>
+                        <MessageBranchContent>
+                          {[...(msg.branches || []), { id: "current", content: msg.content }].map((branch) => (
+                            <div key={branch.id} />
+                          ))}
+                        </MessageBranchContent>
+                        <MessageBranchSelector from="user">
+                          <MessageBranchPrevious />
+                          <MessageBranchPage />
+                          <MessageBranchNext />
+                        </MessageBranchSelector>
+                      </MessageBranchComponent>
                     )}
-                    <Actions className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Action
+                    <MessageActions className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      <MessageAction
                         tooltip="Edit"
                         onClick={() => handleEditStart(msg.id, msg.content)}
                       >
                         <PencilIcon className="size-4" />
-                      </Action>
-                      <Action
+                      </MessageAction>
+                      <MessageAction
                         tooltip="Copy"
                         onClick={() => handleCopy(msg.content)}
                       >
                         <CopyIcon className="size-4" />
-                      </Action>
-                    </Actions>
-                  </div>
+                      </MessageAction>
+                    </MessageActions>
+                  </MessageToolbar>
                 )}
 
                 {msg.role === "assistant" && msg.content && (
-                  <div className="flex justify-start items-center gap-2 -mt-3 mb-2">
-                    <Actions>
-                      <Action
+                  <MessageToolbar className="justify-start mb-2">
+                    <MessageActions>
+                      <MessageAction
                         tooltip="Regenerate"
                         onClick={() => handleRegenerate(msgIndex)}
                       >
                         <RefreshCwIcon className="size-4" />
-                      </Action>
-                      <Action
+                      </MessageAction>
+                      <MessageAction
                         tooltip="Copy"
                         onClick={() => handleCopy(msg.content)}
                       >
                         <CopyIcon className="size-4" />
-                      </Action>
-                    </Actions>
+                      </MessageAction>
+                    </MessageActions>
                     {hasBranches && (
-                      <Branch
+                      <MessageBranchComponent
                         defaultBranch={currentBranchIdx}
                         onBranchChange={(idx) =>
                           handleBranchChange(msgIndex, idx)
                         }
                       >
-                        <BranchSelector from="assistant">
-                          <BranchPrevious />
-                          <BranchPage />
-                          <BranchNext />
-                        </BranchSelector>
-                      </Branch>
+                        <MessageBranchContent>
+                          {[...(msg.branches || []), { id: "current", content: msg.content }].map((branch) => (
+                            <div key={branch.id} />
+                          ))}
+                        </MessageBranchContent>
+                        <MessageBranchSelector from="assistant">
+                          <MessageBranchPrevious />
+                          <MessageBranchPage />
+                          <MessageBranchNext />
+                        </MessageBranchSelector>
+                      </MessageBranchComponent>
                     )}
-                  </div>
+                  </MessageToolbar>
                 )}
               </div>
             );

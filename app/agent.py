@@ -7,6 +7,7 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode
 from loguru import logger
 import os
+import asyncio
 import dotenv
 dotenv.load_dotenv()
 
@@ -14,6 +15,17 @@ from app.tools import get_tools
 from app.tools.memory import get_memory_tools, list_people, retrieve_context, get_user_preferences
 from app.tools.other import get_conversation_summary, set_conversation_summary
 from app.graph_models import Mode
+
+pending_confirmations: dict[str, asyncio.Event] = {}
+confirmation_results: dict[str, bool] = {}
+
+def requires_confirmation(tool_name: str) -> bool:
+    return any(p in tool_name for p in ["add_", "update_", "delete_"])
+
+def set_confirmation_result(tool_id: str, approved: bool):
+    confirmation_results[tool_id] = approved
+    if tool_id in pending_confirmations:
+        pending_confirmations[tool_id].set()
 
 DEFAULT_PROMPT = """You are a helpful AI assistant.
 Current date and time: {datetime}
@@ -60,32 +72,18 @@ def create_agent(
     all_tools = local_tools
     
     tools = [t for t in all_tools if enabled_tools is None or t.name in enabled_tools] if enabled_tools else all_tools
+    tools_dict = {t.name: t for t in tools}
     logger.info(f"Loaded {len(tools)} tools: {[t.name for t in tools]}")
     
     llm_with_tools = llm.bind_tools(tools)
-
-    def call_model(state: MessagesState):
-        return {"messages": [llm_with_tools.invoke(state["messages"])]}
-
-    def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
-        if state["messages"][-1].tool_calls:
-            return "tools"
-        return END
-
-    builder = StateGraph(MessagesState)
-    builder.add_node("model", call_model)
-    builder.add_node("tools", ToolNode(tools))
-    builder.add_edge(START, "model")
-    builder.add_conditional_edges("model", should_continue, ["tools", END])
-    builder.add_edge("tools", "model")
-
-    return builder.compile()
+    return llm_with_tools, tools_dict
 
 
 class ConversationManager:
     def __init__(self):
         self.messages: list = []
         self.agent = None
+        self.tools_dict: dict = {}
         self.model_name = "qwen3:4b"
         self.capabilities: list[str] = []
         self.max_tool_runs = 10
@@ -102,8 +100,8 @@ class ConversationManager:
     def get_agent(self):
         if self.agent is None:
             supports_thinking = "thinking" in self.capabilities
-            self.agent = create_agent(self.model_name, supports_thinking, self.enabled_tools)
-        return self.agent
+            self.agent, self.tools_dict = create_agent(self.model_name, supports_thinking, self.enabled_tools)
+        return self.agent, self.tools_dict
 
     def add_user_message(self, content: str):
         self.messages.append(HumanMessage(content=content))
@@ -183,8 +181,7 @@ class ConversationManager:
             summary_msg = SystemMessage(content=f"[Previous conversation summary: {summary}]")
             self.messages = [system_msg, summary_msg] + recent_msgs
 
-        agent = self.get_agent()
-        config = {"recursion_limit": self.max_tool_runs * 2 + 1}
+        llm, tools_dict = self.get_agent()
 
         logger.info(f"Invoking agent with {len(self.messages)} messages")
         for i, m in enumerate(self.messages):
@@ -198,63 +195,85 @@ class ConversationManager:
                 content_preview = str(m.content)[:100] if m.content else "<empty>"
                 logger.info(f"  Message {i} ({msg_type}): {content_preview}")
 
-        full_response = ""
-        full_thinking = ""
-        pending_tool_calls = {}
-        all_messages = list(self.messages)
-
-        async for event in agent.astream_events({"messages": self.messages}, version="v2", config=config):
-            kind = event["event"]
-            name = event.get("name", "")
+        tool_runs = 0
+        while tool_runs < self.max_tool_runs:
+            pending_tool_calls = {}
+            full_response = ""
+            full_thinking = ""
             
-            if kind == "on_chat_model_stream":
-                chunk = event["data"]["chunk"]
-                if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
-                    for tc in chunk.tool_call_chunks:
-                        tool_id = tc.get("id")
-                        tool_name = tc.get("name", "")
-                        if tool_id and tool_name and tool_id not in pending_tool_calls:
-                            pending_tool_calls[tool_id] = {"name": tool_name, "args": {}}
-                            yield {"type": "tool_start", "name": tool_name, "input": {}, "run_id": tool_id}
+            async for event in llm.astream_events(self.messages, version="v2"):
+                kind = event["event"]
+                
+                if kind == "on_chat_model_stream":
+                    chunk = event["data"]["chunk"]
+                    if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                        for tc in chunk.tool_call_chunks:
+                            tool_id = tc.get("id")
+                            tool_name = tc.get("name", "")
+                            if tool_id and tool_name and tool_id not in pending_tool_calls:
+                                pending_tool_calls[tool_id] = {"name": tool_name, "args": ""}
+                                yield {"type": "tool_start", "name": tool_name, "input": {}, "run_id": tool_id}
+                            if tool_id and tc.get("args"):
+                                pending_tool_calls[tool_id]["args"] += tc.get("args", "")
 
-                reasoning = chunk.additional_kwargs.get("reasoning_content", "")
-                if reasoning:
-                    full_thinking += reasoning
-                    yield {"type": "thinking", "content": reasoning}
-                if chunk.content:
-                    full_response += chunk.content
-                    yield {"type": "content", "content": chunk.content}
+                    reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+                    if reasoning:
+                        full_thinking += reasoning
+                        yield {"type": "thinking", "content": reasoning}
+                    if chunk.content:
+                        full_response += chunk.content
+                        yield {"type": "content", "content": chunk.content}
 
-            elif kind == "on_chat_model_end":
-                output = event.get("data", {}).get("output")
-                if output and hasattr(output, "tool_calls") and output.tool_calls:
-                    for tc in output.tool_calls:
-                        tool_id = tc.get("id", str(len(pending_tool_calls)))
-                        tool_name = tc.get("name", "unknown")
-                        tool_args = tc.get("args", {})
-                        if tool_id not in pending_tool_calls:
-                            pending_tool_calls[tool_id] = {"name": tool_name, "args": tool_args}
-                            yield {"type": "tool_start", "name": tool_name, "input": tool_args, "run_id": tool_id}
-                        else:
-                            pending_tool_calls[tool_id]["args"] = tool_args
+                elif kind == "on_chat_model_end":
+                    output = event.get("data", {}).get("output")
+                    if output and hasattr(output, "tool_calls") and output.tool_calls:
+                        for tc in output.tool_calls:
+                            tool_id = tc.get("id", str(len(pending_tool_calls)))
+                            tool_name = tc.get("name", "unknown")
+                            tool_args = tc.get("args", {})
+                            if tool_id not in pending_tool_calls:
+                                pending_tool_calls[tool_id] = {"name": tool_name, "args": tool_args}
+                                yield {"type": "tool_start", "name": tool_name, "input": tool_args, "run_id": tool_id}
+                            else:
+                                pending_tool_calls[tool_id]["args"] = tool_args
+                    if output:
+                        self.messages.append(output)
 
-            elif kind == "on_chain_end" and name == "tools":
-                output = event.get("data", {}).get("output", {})
-                for msg in output.get("messages", []):
-                    if isinstance(msg, ToolMessage):
-                        tool_id = msg.tool_call_id
-                        tool_info = pending_tool_calls.get(tool_id, {})
-                        tool_name = tool_info.get("name", "unknown")
-                        tool_input = tool_info.get("args", {})
-                        yield {"type": "tool_end", "name": tool_name, "input": tool_input, "output": str(msg.content), "run_id": tool_id}
-                        all_messages.append(msg)
+            if not pending_tool_calls:
+                break
 
-            elif kind == "on_chain_end" and name == "LangGraph":
-                final_output = event.get("data", {}).get("output", {})
-                if "messages" in final_output:
-                    all_messages = final_output["messages"]
-
-        self.messages = all_messages
+            for tool_id, tool_info in pending_tool_calls.items():
+                tool_name = tool_info["name"]
+                tool_args = tool_info["args"]
+                if isinstance(tool_args, str):
+                    import json as _json
+                    tool_args = _json.loads(tool_args) if tool_args else {}
+                
+                if requires_confirmation(tool_name):
+                    yield {"type": "tool_confirmation_required", "tool_id": tool_id, "name": tool_name, "input": tool_args}
+                    
+                    event = asyncio.Event()
+                    pending_confirmations[tool_id] = event
+                    await event.wait()
+                    del pending_confirmations[tool_id]
+                    
+                    approved = confirmation_results.pop(tool_id, False)
+                    
+                    if not approved:
+                        tool_result = f"DENIED: User rejected this memory operation. Do not retry the same tool call. Acknowledge the denial and continue the conversation without saving this memory."
+                        yield {"type": "tool_denied", "tool_id": tool_id, "name": tool_name}
+                    else:
+                        tool = tools_dict.get(tool_name)
+                        tool_result = tool.invoke(tool_args) if tool else "Tool not found"
+                        yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
+                else:
+                    tool = tools_dict.get(tool_name)
+                    tool_result = tool.invoke(tool_args) if tool else "Tool not found"
+                    yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
+                
+                self.messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
+            
+            tool_runs += 1
 
     def clear(self):
         self.messages = []

@@ -2,12 +2,13 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
 type Attachment = { id: string; name: string; type: string; size: number; data: string }
-type ToolCall = { name: string; status: "started" | "completed"; input?: Record<string, unknown>; output?: string; artifacts?: string[]; id?: string }
+type ToolCall = { name: string; status: "started" | "completed" | "pending_confirmation" | "denied"; input?: Record<string, unknown>; output?: string; artifacts?: string[]; id?: string }
 type MemorySearchOp = { type: "search"; status: "started" | "completed"; query?: string; memories?: string[] }
 type MemoryOp = MemorySearchOp
 type ThinkingBlock = { id: string; content: string; isStreaming: boolean }
 type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
-type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number; experimental_attachments?: Attachment[] }
+type LiveContent = { content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
+type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; experimental_attachments?: Attachment[] }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean; supports_vision: boolean }
 type PromptVariable = { name: string; desc: string }
 type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean }
@@ -74,4 +75,4 @@ export const useChatStore = create<ChatStore>()(
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, Model, ModeData, PromptVariable }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, Model, ModeData, PromptVariable }

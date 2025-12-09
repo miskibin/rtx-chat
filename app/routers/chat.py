@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 import json
 import re
@@ -6,9 +7,15 @@ import uuid
 from loguru import logger
 
 from app.schemas import ChatRequest
-from app.agent import conversation
+from app.agent import conversation, set_confirmation_result
 
 router = APIRouter(tags=["chat"])
+
+
+class ConfirmRequest(BaseModel):
+    tool_id: str
+    approved: bool
+
 
 def parse_artifacts(output: str) -> tuple[str, list[str]]:
     match = re.search(r'\[ARTIFACTS:([^\]]+)\]', output)
@@ -60,6 +67,14 @@ async def chat_stream(request: ChatRequest):
                     output = chunk["output"]
                     clean_output, artifacts = parse_artifacts(output)
                     yield {"data": json.dumps({"tool_call": chunk["name"], "status": "completed", "input": chunk.get("input", {}), "output": clean_output, "artifacts": artifacts, "tool_id": tool_id})}
+                elif chunk["type"] == "tool_confirmation_required":
+                    tool_id = chunk.get("tool_id", "")
+                    logger.info(f"Tool confirmation required: {chunk['name']} (id: {tool_id})")
+                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "pending_confirmation", "input": chunk.get("input", {}), "tool_id": tool_id})}
+                elif chunk["type"] == "tool_denied":
+                    tool_id = chunk.get("tool_id", "")
+                    logger.info(f"Tool denied: {chunk['name']} (id: {tool_id})")
+                    yield {"data": json.dumps({"tool_call": chunk["name"], "status": "denied", "tool_id": tool_id})}
                 elif chunk["type"] == "memories_saved":
                     logger.info(f"Memories saved: {chunk['memories']}")
                     yield {"data": json.dumps({"memories_saved": chunk["memories"]})}
@@ -79,3 +94,10 @@ async def clear_chat():
     logger.info("Clearing conversation")
     conversation.clear()
     return {"status": "cleared"}
+
+
+@router.post("/chat/confirm")
+async def confirm_tool(request: ConfirmRequest):
+    logger.info(f"Tool confirmation: {request.tool_id} -> {'approved' if request.approved else 'denied'}")
+    set_confirmation_result(request.tool_id, request.approved)
+    return {"status": "confirmed", "tool_id": request.tool_id, "approved": request.approved}
