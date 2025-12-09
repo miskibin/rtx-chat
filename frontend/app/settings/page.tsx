@@ -13,11 +13,13 @@ import { Separator } from "@/components/ui/separator"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-type ToolInfo = { name: string; description: string }
+type ToolInfo = { name: string; description: string; category: string }
+type CategoryData = { label: string; tools: ToolInfo[] }
+type CategoriesMap = Record<string, CategoryData>
 
 export default function SettingsPage() {
   const { settings, setSettings } = useChatStore()
-  const [tools, setTools] = useState<ToolInfo[]>([])
+  const [categories, setCategories] = useState<CategoriesMap>({})
   const [localMaxRuns, setLocalMaxRuns] = useState(settings.maxToolRuns)
   const [localMaxMemories, setLocalMaxMemories] = useState(settings.maxMemories || 5)
   const [localEnabledTools, setLocalEnabledTools] = useState<Set<string>>(new Set(settings.enabledTools))
@@ -25,13 +27,37 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetch(`${API_URL}/tools`).then(r => r.json()).then(d => {
-      setTools(d.tools || [])
-      const toolNames = new Set(d.tools.map((t: ToolInfo) => t.name))
-      const validEnabled = settings.enabledTools.filter(t => toolNames.has(t))
-      if (validEnabled.length === 0) {
-        setLocalEnabledTools(toolNames)
+      if (d.categories) {
+        setCategories(d.categories)
+        const allTools = new Set<string>()
+        Object.values(d.categories).forEach((cat: CategoryData) => {
+          cat.tools.forEach((t: ToolInfo) => allTools.add(t.name))
+        })
+        const validEnabled = settings.enabledTools.filter(t => allTools.has(t))
+        if (validEnabled.length === 0) {
+          setLocalEnabledTools(allTools)
+        } else {
+          setLocalEnabledTools(new Set(validEnabled))
+        }
       } else {
-        setLocalEnabledTools(new Set(validEnabled))
+        // Fallback for backward compatibility
+        const flatTools: ToolInfo[] = d.tools || []
+        const toolsByCategory: CategoriesMap = {}
+        flatTools.forEach(tool => {
+          const cat = tool.category || "other"
+          if (!toolsByCategory[cat]) {
+            toolsByCategory[cat] = { label: cat, tools: [] }
+          }
+          toolsByCategory[cat].tools.push(tool)
+        })
+        setCategories(toolsByCategory)
+        const toolNames = new Set(flatTools.map((t: ToolInfo) => t.name))
+        const validEnabled = settings.enabledTools.filter(t => toolNames.has(t))
+        if (validEnabled.length === 0) {
+          setLocalEnabledTools(toolNames)
+        } else {
+          setLocalEnabledTools(new Set(validEnabled))
+        }
       }
     })
   }, [])
@@ -54,7 +80,11 @@ export default function SettingsPage() {
   const handleReset = () => {
     setLocalMaxRuns(10)
     setLocalMaxMemories(5)
-    setLocalEnabledTools(new Set(tools.map(t => t.name)))
+    const allTools = new Set<string>()
+    Object.values(categories).forEach((cat: CategoryData) => {
+      cat.tools.forEach((t: ToolInfo) => allTools.add(t.name))
+    })
+    setLocalEnabledTools(allTools)
   }
 
   return (
@@ -122,11 +152,14 @@ export default function SettingsPage() {
           <Card className="border-none shadow-none bg-transparent p-0">
             <CardHeader className="px-0">
               <CardTitle>Tools & Capabilities</CardTitle>
-              <CardDescription>Enable or disable specific tools available to the agent.</CardDescription>
+              <CardDescription>Enable or disable specific tools available to the agent, organized by category.</CardDescription>
             </CardHeader>
-            <CardContent className="px-0">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {tools.map(tool => (
+            <CardContent className="px-0 space-y-8">
+              {Object.entries(categories).map(([categoryKey, categoryData]) => (
+                <div key={categoryKey}>
+                  <h3 className="text-sm font-semibold text-foreground/70 mb-4 uppercase tracking-wide">{categoryData.label}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {categoryData.tools.map(tool => (
                         <div key={tool.name} className="flex items-start gap-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
                             <Switch
                                 checked={localEnabledTools.has(tool.name)}
@@ -139,7 +172,10 @@ export default function SettingsPage() {
                             </div>
                         </div>
                     ))}
+                  </div>
+                  <Separator className="mt-6" />
                 </div>
+              ))}
             </CardContent>
           </Card>
 

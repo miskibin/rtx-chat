@@ -10,8 +10,9 @@ import os
 import dotenv
 dotenv.load_dotenv()
 
-from app.tools import get_tools, get_conversation_summary, set_conversation_summary
-from app.memory_tools import get_memory_tools, list_people, retrieve_context, get_user_preferences
+from app.tools import get_tools
+from app.tools.memory import get_memory_tools, list_people, retrieve_context, get_user_preferences
+from app.tools.other import get_conversation_summary, set_conversation_summary
 
 MEMORY_INSTRUCTION = """MEMORY MANAGEMENT:
 Save CONCISE, KEY information - don't copy user's words verbatim.

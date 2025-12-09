@@ -3,8 +3,7 @@ import ollama
 from loguru import logger
 
 from app.schemas import ModelsResponse, ModelInfo
-from app.tools import get_tools
-from app.memory_tools import get_memory_tools
+from app.tools import get_tools, get_tools_by_category
 
 router = APIRouter(tags=["models"])
 
@@ -77,7 +76,8 @@ async def list_models():
 
 @router.get("/tools")
 def list_tools():
-    memory_tools = get_memory_tools()
-    local_tools = get_tools()
-    all_tools = memory_tools + local_tools
-    return {"tools": [{"name": t.name, "description": t.description} for t in all_tools]}
+    tools_by_category = get_tools_by_category()
+    all_tools = []
+    for category, data in tools_by_category.items():
+        all_tools.extend(data["tools"])
+    return {"tools": all_tools, "categories": tools_by_category}
