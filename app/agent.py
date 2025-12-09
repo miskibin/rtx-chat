@@ -11,7 +11,7 @@ import dotenv
 dotenv.load_dotenv()
 
 from app.tools import get_tools, get_conversation_summary, set_conversation_summary
-from app.memory_tools import get_memory_tools, list_people, kg_retrieve_context, kg_get_user_preferences
+from app.memory_tools import get_memory_tools, list_people, retrieve_context, get_user_preferences
 
 MEMORY_INSTRUCTION = """MEMORY MANAGEMENT:
 Save CONCISE, KEY information - don't copy user's words verbatim.
@@ -147,11 +147,11 @@ class ConversationManager:
         self.messages.append(AIMessage(content=content))
 
     def get_memories(self, query: str) -> str:
-        result = kg_retrieve_context.invoke({"query": query, "limit": self.max_memories})
+        result = retrieve_context.invoke({"query": query, "limit": self.max_memories})
         return str(result) if result and result != "No results" else ""
 
     def get_preferences(self) -> str:
-        result = kg_get_user_preferences.invoke({})
+        result = get_user_preferences.invoke({})
         return str(result) if result and result != "No preferences" else ""
 
     def get_people(self) -> list[str]:

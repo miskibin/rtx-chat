@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel
 
 class ChatMessage(BaseModel):
@@ -27,3 +28,24 @@ class ModelInfo(BaseModel):
 
 class ModelsResponse(BaseModel):
     models: list[ModelInfo]
+
+class MergeEntitiesRequest(BaseModel):
+    primary_id: str
+    duplicate_id: str
+
+
+# Request Models
+class EventUpdate(BaseModel):
+    description: Optional[str] = None
+    date: Optional[str] = None
+
+class PersonUpdate(BaseModel):
+    description: Optional[str] = None
+    
+class RelationshipUpdate(BaseModel):
+    relation_type: str
+    sentiment: str
+
+class FactUpdate(BaseModel):
+    content: Optional[str] = None
+    category: Optional[str] = None

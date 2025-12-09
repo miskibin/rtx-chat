@@ -30,7 +30,7 @@ def list_people() -> list[str]:
 
 
 @tool
-def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: list[str] = [], limit: int = 5) -> str:
+def retrieve_context(query: str, entity_names: list[str] = [], node_labels: list[str] = [], limit: int = 5) -> str:
     """Search memories by query or entity names. Returns people, events, facts."""
     label_to_model = {"Person": Person, "Event": Event, "Fact": Fact, "Preference": Preference}
     
@@ -85,7 +85,7 @@ def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: l
                     all_results.append({"output": f"Event: {event}{detail} [ID: {rec['id']}]", "score": rec["score"]})
             else:
                 result = session.run(
-                    f"CALL db.index.vector.queryNodes('embedding_index_{label}', $limit, $embedding) YIELD node, score RETURN node, score, elementId(node) as id",
+                    f"CALL db.index.vector.queryNodes('embedding_index_{label}', $limit, $embedding) YIELD node, score RETURN node, score, elementId(node) as id",  # type: ignore
                     embedding=query_embedding, limit=limit
                 )
                 for rec in result:
@@ -97,7 +97,7 @@ def kg_retrieve_context(query: str, entity_names: list[str] = [], node_labels: l
 
 
 @tool
-def kg_get_user_preferences() -> str:
+def get_user_preferences() -> str:
     """Get user preferences for AI behavior."""
     with get_session() as session:
         result = session.run("MATCH (u:User)-[:HAS_PREFERENCE]->(p:Preference) RETURN p.instruction as instruction")
@@ -106,7 +106,7 @@ def kg_get_user_preferences() -> str:
 
 
 @tool
-def kg_check_relationship(person_name: str) -> str:
+def check_relationship(person_name: str) -> str:
     """Check relationship between User and a Person."""
     with get_session() as session:
         result = session.run(
@@ -206,39 +206,36 @@ def add_or_update_relationship(
 
 
 @tool
-def update_fact(fact_id: str, new_content: str) -> str:
-    """Update an existing fact using its ID. Use this when correcting information."""
+def update_fact_or_preference(item_id: str, new_content: str = None, new_instruction: str = None) -> str:
+    """Update an existing fact or preference using its ID. Use this when correcting information."""
     with get_session() as session:
-        rec = session.run("MATCH (f:Fact) WHERE elementId(f) = $id RETURN f.category as category", id=fact_id).single()
-        if not rec: return "Fact not found"
-        category = rec["category"]
+        fact_rec = session.run("MATCH (f:Fact) WHERE elementId(f) = $id RETURN f.category as category", id=item_id).single()
+        if fact_rec:
+            if not new_content:
+                return "new_content is required for updating facts"
+            category = fact_rec["category"]
+            fact = Fact(content=new_content, category=category)
+            embedding = _embeddings.embed_query(fact.embedding_text)
+            session.run(
+                "MATCH (f:Fact) WHERE elementId(f) = $id SET f.content = $content, f.embedding = $embedding",
+                id=item_id, content=new_content, embedding=embedding
+            )
+            return f"Fact updated: {new_content}"
         
-        fact = Fact(content=new_content, category=category)
-        embedding = _embeddings.embed_query(fact.embedding_text)
+        pref_rec = session.run("MATCH (p:Preference) WHERE elementId(p) = $id RETURN p", id=item_id).single()
+        if pref_rec:
+            if not new_instruction:
+                return "new_instruction is required for updating preferences"
+            pref = Preference(instruction=new_instruction)
+            embedding = _embeddings.embed_query(pref.embedding_text)
+            session.run(
+                "MATCH (p:Preference) WHERE elementId(p) = $id SET p.instruction = $instruction, p.embedding = $embedding",
+                id=item_id, instruction=new_instruction, embedding=embedding
+            )
+            return f"Preference updated: {new_instruction}"
         
-        session.run(
-            "MATCH (f:Fact) WHERE elementId(f) = $id SET f.content = $content, f.embedding = $embedding",
-            id=fact_id, content=new_content, embedding=embedding
-        )
-    return f"Fact updated: {new_content}"
-
-
-@tool
-def update_preference(preference_id: str, new_instruction: str) -> str:
-    """Update an existing preference using its ID. Use this when correcting information."""
-    with get_session() as session:
-        rec = session.run("MATCH (p:Preference) WHERE elementId(p) = $id RETURN p", id=preference_id).single()
-        if not rec: return "Preference not found"
-        
-        pref = Preference(instruction=new_instruction)
-        embedding = _embeddings.embed_query(pref.embedding_text)
-        
-        session.run(
-            "MATCH (p:Preference) WHERE elementId(p) = $id SET p.instruction = $instruction, p.embedding = $embedding",
-            id=preference_id, instruction=new_instruction, embedding=embedding
-        )
-    return f"Preference updated: {new_instruction}"
+        return "Fact or preference not found"
 
 
 def get_memory_tools():
-    return [kg_retrieve_context, kg_get_user_preferences, kg_check_relationship, add_or_update_person, add_event, add_fact, add_preference, add_or_update_relationship, update_fact, update_preference]
+    return [retrieve_context, get_user_preferences, check_relationship, add_or_update_person, add_event, add_fact, add_preference, add_or_update_relationship, update_fact_or_preference]

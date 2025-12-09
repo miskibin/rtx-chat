@@ -4,6 +4,8 @@ from langchain_ollama import OllamaEmbeddings
 from loguru import logger
 import os
 from dotenv import load_dotenv
+from pyparsing import Optional
+from app.schemas import MergeEntitiesRequest, EventUpdate, PersonUpdate, RelationshipUpdate
 
 load_dotenv()
 
@@ -16,55 +18,37 @@ embeddings = OllamaEmbeddings(model="embeddinggemma")
 
 
 @router.get("/memories")
-async def list_memories():
+async def list_memories(skip: int = 0, limit: int = 50, type_filter: str = None):
+    """
+    Lists memories with pagination. 
+    Optional type_filter: 'Person', 'Event', 'Fact', 'Preference'
+    """
+    query = """
+        MATCH (n) 
+        WHERE (n:Person OR n:Event OR n:Fact OR n:Preference)
+    """
+    
+    if type_filter:
+        query += f" AND labels(n)[0] = '{type_filter}'"
+        
+    query += """
+        RETURN labels(n)[0] as type, 
+               CASE 
+                   WHEN n:Person THEN n.name + ': ' + coalesce(n.description, '')
+                   WHEN n:Event THEN '[' + n.date + '] ' + n.description
+                   WHEN n:Fact THEN n.content + ' (' + n.category + ')'
+                   WHEN n:Preference THEN n.instruction
+               END as content,
+               elementId(n) as id
+        SKIP $skip LIMIT $limit
+    """
+    
     with driver.session() as session:
-        result = session.run("""
-            MATCH (n) WHERE n:Person OR n:Event OR n:Fact OR n:Preference
-            RETURN labels(n)[0] as type, 
-                   CASE 
-                       WHEN n:Person THEN n.name + ': ' + coalesce(n.description, '')
-                       WHEN n:Event THEN '[' + n.date + '] ' + n.description
-                       WHEN n:Fact THEN n.content + ' (' + n.category + ')'
-                       WHEN n:Preference THEN n.instruction
-                   END as content,
-                   elementId(n) as id
-        """)
+        result = session.run(query, skip=skip, limit=limit)
         memories = [{"id": r["id"], "type": r["type"], "content": r["content"]} for r in result]
     return {"memories": memories}
 
-
-@router.get("/memories/search")
-async def search_memories(q: str):
-    embedding = embeddings.embed_query(q)
-    memories = []
-    with driver.session() as session:
-        for label in ["Person", "Event", "Fact", "Preference"]:
-            result = session.run(
-                f"CALL db.index.vector.queryNodes('embedding_index_{label}', 5, $embedding) YIELD node, score RETURN node, score, labels(node)[0] as type",
-                embedding=embedding
-            )
-            for r in result:
-                node = dict(r["node"])
-                if label == "Person":
-                    content = f"{node.get('name', '')}: {node.get('description', '')}"
-                elif label == "Event":
-                    content = f"[{node.get('date', '')}] {node.get('description', '')}"
-                elif label == "Fact":
-                    content = f"{node.get('content', '')} ({node.get('category', '')})"
-                else:
-                    content = node.get("instruction", "")
-                memories.append({"type": r["type"], "content": content, "score": r["score"]})
-    memories.sort(key=lambda x: x["score"], reverse=True)
-    return {"memories": memories[:10]}
-
-
-@router.get("/memories/preferences")
-async def get_preferences():
-    with driver.session() as session:
-        result = session.run("MATCH (u:User)-[:HAS_PREFERENCE]->(p:Preference) RETURN p.instruction as instruction")
-        preferences = [r["instruction"] for r in result]
-    return {"preferences": preferences}
-
+# --- IMPROVED SPECIALIZED LISTS (Now returning IDs) ---
 
 @router.get("/memories/people")
 async def list_people():
@@ -72,15 +56,23 @@ async def list_people():
         result = session.run("""
             MATCH (p:Person)
             OPTIONAL MATCH (u:User)-[k:KNOWS]->(p)
-            RETURN p.name as name, p.description as description, 
-                   k.relation_type as relation, k.sentiment as sentiment
+            RETURN elementId(p) as id, 
+                   p.name as name, 
+                   p.description as description, 
+                   k.relation_type as relation, 
+                   k.sentiment as sentiment
         """)
         people = [
-            {"name": r["name"], "description": r["description"], "relation": r["relation"], "sentiment": r["sentiment"]}
+            {
+                "id": r["id"],
+                "name": r["name"], 
+                "description": r["description"], 
+                "relation": r["relation"], 
+                "sentiment": r["sentiment"]
+            }
             for r in result
         ]
     return {"people": people}
-
 
 @router.get("/memories/events")
 async def list_events():
@@ -88,15 +80,119 @@ async def list_events():
         result = session.run("""
             MATCH (e:Event)
             OPTIONAL MATCH (p:Person)-[:PARTICIPATED_IN]->(e)
-            RETURN e.description as description, e.date as date, collect(p.name) as participants
+            RETURN elementId(e) as id,
+                   e.description as description, 
+                   e.date as date, 
+                   collect(p.name) as participants
+            ORDER BY e.date DESC
         """)
-        events = [{"description": r["description"], "date": r["date"], "participants": r["participants"]} for r in result]
+        events = [
+            {
+                "id": r["id"],
+                "description": r["description"], 
+                "date": r["date"], 
+                "participants": r["participants"]
+            } 
+            for r in result
+        ]
     return {"events": events}
 
+# --- NEW EDITING ENDPOINTS ---
 
-@router.delete("/memories/{memory_id}")
-async def delete_memory(memory_id: str):
-    logger.info(f"Deleting memory {memory_id}")
+@router.patch("/memories/events/{memory_id}")
+async def update_event(memory_id: str, update: EventUpdate):
+    """Updates event text/date and REGENERATES EMBEDDING."""
     with driver.session() as session:
-        session.run("MATCH (n) WHERE elementId(n) = $id DETACH DELETE n", id=memory_id)
-    return {"status": "deleted"}
+        # 1. Fetch existing data to combine with updates
+        existing = session.run("MATCH (e:Event) WHERE elementId(e) = $id RETURN e.description as d, e.date as t", id=memory_id).single()
+        if not existing:
+            return {"error": "Event not found"}
+            
+        new_desc = update.description or existing["d"]
+        new_date = update.date or existing["t"]
+        
+        # 2. Regenerate embedding (Crucial!)
+        # Assuming embedding is based on "description + date"
+        text_to_embed = f"{new_desc} {new_date}"
+        new_embedding = embeddings.embed_query(text_to_embed)
+        
+        # 3. Update DB
+        session.run("""
+            MATCH (e:Event) WHERE elementId(e) = $id
+            SET e.description = $desc, e.date = $date, e.embedding = $emb
+        """, id=memory_id, desc=new_desc, date=new_date, emb=new_embedding)
+        
+    return {"status": "updated", "id": memory_id}
+
+@router.patch("/memories/people/{memory_id}")
+async def update_person(memory_id: str, update: PersonUpdate):
+    """Updates person description and REGENERATES EMBEDDING."""
+    with driver.session() as session:
+        existing = session.run("MATCH (p:Person) WHERE elementId(p) = $id RETURN p.name as name, p.description as d", id=memory_id).single()
+        if not existing:
+            return {"error": "Person not found"}
+            
+        new_desc = update.description or existing["d"]
+        
+        # Embedding usually includes Name + Description
+        text_to_embed = f"{existing['name']} {new_desc}"
+        new_embedding = embeddings.embed_query(text_to_embed)
+        
+        session.run("""
+            MATCH (p:Person) WHERE elementId(p) = $id
+            SET p.description = $desc, p.embedding = $emb
+        """, id=memory_id, desc=new_desc, emb=new_embedding)
+        
+    return {"status": "updated", "id": memory_id}
+
+@router.patch("/memories/people/{memory_id}/relationship")
+async def update_relationship(memory_id: str, update: RelationshipUpdate):
+    """Updates the relationship between User and this Person."""
+    with driver.session() as session:
+        # No embedding update needed here usually, unless you embed relationships specifically
+        session.run("""
+            MATCH (u:User)-[r:KNOWS]->(p:Person) 
+            WHERE elementId(p) = $id
+            SET r.relation_type = $type, r.sentiment = $sent
+        """, id=memory_id, type=update.relation_type, sent=update.sentiment)
+        
+    return {"status": "relationship updated"}
+
+@router.post("/memories/merge")
+async def merge_entities(request: MergeEntitiesRequest):
+    """Merges duplicate entities by transferring all relationships from duplicate to primary, then deletes duplicate."""
+    with driver.session() as session:
+        # Verify both entities exist
+        primary = session.run("MATCH (n) WHERE elementId(n) = $id RETURN labels(n) as labels", id=request.primary_id).single()
+        duplicate = session.run("MATCH (n) WHERE elementId(n) = $id RETURN labels(n) as labels", id=request.duplicate_id).single()
+        
+        if not primary or not duplicate:
+            return {"error": "One or both entities not found"}
+        
+        # Transfer all incoming relationships
+        session.run("""
+            MATCH (x)-[r]->(dup) WHERE elementId(dup) = $dup_id
+            MATCH (primary) WHERE elementId(primary) = $prim_id
+            CREATE (x)-[new_r:DUPLICATE_MERGED]->(primary)
+            SET new_r = r
+            DELETE r
+        """, dup_id=request.duplicate_id, prim_id=request.primary_id)
+        
+        # Transfer all outgoing relationships
+        session.run("""
+            MATCH (dup)-[r]->(y) WHERE elementId(dup) = $dup_id
+            MATCH (primary) WHERE elementId(primary) = $prim_id
+            CREATE (primary)-[new_r:DUPLICATE_MERGED]->(y)
+            SET new_r = r
+            DELETE r
+        """, dup_id=request.duplicate_id, prim_id=request.primary_id)
+        
+        # Delete the duplicate node
+        session.run("""
+            MATCH (dup) WHERE elementId(dup) = $dup_id
+            DELETE dup
+        """, dup_id=request.duplicate_id)
+        
+        logger.info(f"Merged entity {request.duplicate_id} into {request.primary_id}")
+    
+    return {"status": "merged", "primary_id": request.primary_id, "merged_id": request.duplicate_id}
