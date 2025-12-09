@@ -836,6 +836,7 @@ export default function Home() {
                               "add_preference",
                               "add_or_update_relationship",
                               "update_fact_or_preference",
+                              "delete_memory",
                             ];
                             const isMemoryTool = memoryTools.includes(
                               tool.name

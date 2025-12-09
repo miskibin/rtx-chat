@@ -219,36 +219,39 @@ def add_or_update_relationship(
 
 
 @tool
-def update_fact_or_preference(item_id: str, new_content: str = None, new_instruction: str = None) -> str:
-    """Update an existing fact or preference using its ID. Use this when correcting information."""
+def update_fact_or_preference(item_id: str, new_value: str) -> str:
+    """Update an existing fact or preference using its ID."""
     with get_session() as session:
         fact_rec = session.run("MATCH (f:Fact) WHERE elementId(f) = $id RETURN f.category as category", id=item_id).single()
         if fact_rec:
-            if not new_content:
-                return "new_content is required for updating facts"
-            category = fact_rec["category"]
-            fact = Fact(content=new_content, category=category)
+            fact = Fact(content=new_value, category=fact_rec["category"])
             embedding = _embeddings.embed_query(fact.embedding_text)
             session.run(
                 "MATCH (f:Fact) WHERE elementId(f) = $id SET f.content = $content, f.embedding = $embedding",
-                id=item_id, content=new_content, embedding=embedding
+                id=item_id, content=new_value, embedding=embedding
             )
-            return f"Fact updated: {new_content}"
+            return f"Fact updated: {new_value}"
         
         pref_rec = session.run("MATCH (p:Preference) WHERE elementId(p) = $id RETURN p", id=item_id).single()
         if pref_rec:
-            if not new_instruction:
-                return "new_instruction is required for updating preferences"
-            pref = Preference(instruction=new_instruction)
+            pref = Preference(instruction=new_value)
             embedding = _embeddings.embed_query(pref.embedding_text)
             session.run(
                 "MATCH (p:Preference) WHERE elementId(p) = $id SET p.instruction = $instruction, p.embedding = $embedding",
-                id=item_id, instruction=new_instruction, embedding=embedding
+                id=item_id, instruction=new_value, embedding=embedding
             )
-            return f"Preference updated: {new_instruction}"
+            return f"Preference updated: {new_value}"
         
-        return "Fact or preference not found"
+        return "Memory not found"
+
+
+@tool
+def delete_memory(item_id: str) -> str:
+    """Delete a memory (fact, preference, person, or event) by its ID."""
+    with get_session() as session:
+        result = session.run("MATCH (n) WHERE elementId(n) = $id DETACH DELETE n RETURN count(n) as deleted", id=item_id).single()
+        return "Memory deleted" if result["deleted"] > 0 else "Memory not found"
 
 
 def get_memory_tools():
-    return [retrieve_context, get_user_preferences, check_relationship, add_or_update_person, add_event, add_fact, add_preference, add_or_update_relationship, update_fact_or_preference]
+    return [retrieve_context, get_user_preferences, check_relationship, add_or_update_person, add_event, add_fact, add_preference, add_or_update_relationship, update_fact_or_preference, delete_memory]
