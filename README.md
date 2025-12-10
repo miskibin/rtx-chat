@@ -160,3 +160,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 LLM_API_KEY=  # For OpenAI/Grok models
 LLM_API_URL=  # For custom LLM endpoints
 ```
+<img width="1916" height="1018" alt="image" src="https://github.com/user-attachments/assets/48013273-6aa0-45d5-b56c-f250996653a9" />
+
+<img width="1834" height="921" alt="image" src="https://github.com/user-attachments/assets/8e9f6991-4b9b-4139-abf0-3088a0ae0e30" />
+
