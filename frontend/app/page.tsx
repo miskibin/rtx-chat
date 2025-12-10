@@ -173,46 +173,29 @@ export default function Home() {
   const [openItems, setOpenItems] = useState<Set<string>>(new Set());
   const [editContent, setEditContent] = useState("");
 
-  // Track if initial data has been loaded
-  const [initialized, setInitialized] = useState(false);
-  
   useEffect(() => {
-    Promise.all([
-      fetch(`${API_URL}/modes`).then(r => r.json()),
-      fetch(`${API_URL}/models`).then(r => r.json())
-    ]).then(([modesData, modelsData]) => {
-      const modes = modesData.modes || [];
-      const allModels = modelsData.models || [];
+    // Refresh modes and models from API (cached data shows immediately from store)
+    fetch(`${API_URL}/modes`).then(r => r.json()).then(d => {
+      const modes = d.modes || [];
+      setAvailableModes(modes, d.variables || [], d.all_tools || []);
       
-      setAvailableModes(modes, modesData.variables || [], modesData.all_tools || []);
+      // Only set default if NO mode was previously selected
+      const currentMode = useChatStore.getState().selectedMode;
+      if (!currentMode && modes.length > 0) {
+        setSelectedMode(modes[0].name);
+      }
+    });
+    
+    fetch(`${API_URL}/models`).then(r => r.json()).then(d => {
+      const allModels = d.models || [];
       setModels(allModels);
       
-      // Get current values after APIs have loaded
-      const currentMode = useChatStore.getState().selectedMode;
+      // Only set default if NO model was previously selected
       const currentModel = useChatStore.getState().selectedModel;
-      
-      // Set default mode if empty or invalid
-      if (modes.length > 0) {
-        const modeExists = currentMode && modes.some((m: { name: string }) => m.name === currentMode);
-        if (!modeExists) {
-          setSelectedMode(modes[0].name);
-        }
+      if (!currentModel && allModels.length > 0) {
+        const toolModels = allModels.filter((m: { supports_tools: boolean }) => m.supports_tools);
+        setSelectedModel(toolModels.length > 0 ? toolModels[0].name : allModels[0].name);
       }
-      
-      // Set default model if empty or invalid
-      if (allModels.length > 0) {
-        const modelExists = currentModel && allModels.some((m: { name: string }) => m.name === currentModel);
-        if (!modelExists) {
-          const toolModels = allModels.filter((m: { supports_tools: boolean }) => m.supports_tools);
-          if (toolModels.length > 0) {
-            setSelectedModel(toolModels[0].name);
-          } else {
-            setSelectedModel(allModels[0].name);
-          }
-        }
-      }
-      
-      setInitialized(true);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1351,7 +1334,7 @@ export default function Home() {
               </PromptInputTools>
 
               <PromptInputSubmit 
-                disabled={(!input && status !== "streaming") || !selectedModel || !initialized} 
+                disabled={(!input && status !== "streaming") || !selectedModel} 
                 status={status}
                 onClick={(e) => {
                   if (status === "streaming" && abortRef.current) {

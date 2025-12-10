@@ -104,14 +104,10 @@ export const useChatStore = create<ChatStore>()(
         currentConversationId: state.currentConversationId,
         titleGeneration: state.titleGeneration,
         autoSave: state.autoSave,
+        // Cache available options for instant loading
+        models: state.models,
+        availableModes: state.availableModes,
       }),
-      onRehydrateStorage: () => (state) => {
-        // Clear invalid persisted values on hydration
-        if (state) {
-          if (!state.selectedModel) state.selectedModel = "";
-          if (!state.selectedMode) state.selectedMode = "";
-        }
-      },
     }
   )
 )
