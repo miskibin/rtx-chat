@@ -61,22 +61,16 @@ import {
   useReactTable,
   VisibilityState,
 } from "@tanstack/react-table"
+import { useChatStore, type Person, type Event, type Memory, type Duplicate, type GraphData } from "@/lib/store"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 type MemoryType = "Person" | "Event" | "Fact" | "Preference"
-type Memory = { id: string; type: MemoryType; content: string }
-type Person = { id: string; name: string; description: string; relation: string; sentiment: string }
-type Event = { id: string; description: string; date: string; participants: string[] }
-type Duplicate = { id1: string; id2: string; content1: string; content2: string; score: number; type: string }
 type TableItem = { id: string; type: MemoryType; content: string; extra?: string; data: Person | Event | Memory }
 
 type ConnectionPerson = { id: string; name: string; relation?: string; sentiment?: string; description?: string; role?: string; direction?: string; since?: string }
 type ConnectionEvent = { id: string; description: string; date?: string; role?: string }
 type Connections = { type: string; events: ConnectionEvent[]; people: ConnectionPerson[] }
-type GraphNode = { id: string; type: string; name: string }
-type GraphLink = { source: string; target: string; type: string }
-type GraphData = { nodes: GraphNode[]; links: GraphLink[] }
 
 const typeConfig: Record<MemoryType, { icon: React.ReactNode; color: string; bgColor: string }> = {
   Person: { icon: <UsersIcon className="size-4" />, color: "text-violet-600 dark:text-violet-400", bgColor: "bg-violet-100 dark:bg-violet-500/20" },
@@ -206,11 +200,8 @@ function ConnectionsRow({ row, columnsLength }: { row: Row<TableItem>; columnsLe
 }
 
 export default function MemoriesPage() {
-  const [memories, setMemories] = useState<Memory[]>([])
-  const [people, setPeople] = useState<Person[]>([])
-  const [events, setEvents] = useState<Event[]>([])
-  const [duplicates, setDuplicates] = useState<Duplicate[]>([])
-  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] })
+  const { memoriesData, fetchMemoriesIfStale, invalidateCache } = useChatStore()
+  const { memories, people, events, duplicates, graphData } = memoriesData
   const graphRef = useRef<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [editItem, setEditItem] = useState<Person | Event | null>(null)
@@ -218,7 +209,6 @@ export default function MemoriesPage() {
   const [editForm, setEditForm] = useState<any>({})
   const [activeTab, setActiveTab] = useState("memories")
 
-  // Data table state
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
@@ -226,30 +216,19 @@ export default function MemoriesPage() {
   const [typeFilter, setTypeFilter] = useState<MemoryType | "all">("all")
   const [expanded, setExpanded] = useState<ExpandedState>({})
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (forceRefresh = false) => {
     setIsLoading(true)
-    const [memRes, pplRes, evtRes, dupRes, graphRes] = await Promise.all([
-      fetch(`${API_URL}/memories?limit=100`),
-      fetch(`${API_URL}/memories/people`),
-      fetch(`${API_URL}/memories/events`),
-      fetch(`${API_URL}/memories/duplicates?threshold=0.90&limit=20`),
-      fetch(`${API_URL}/memories/graph`)
-    ])
-    setMemories((await memRes.json()).memories || [])
-    setPeople((await pplRes.json()).people || [])
-    setEvents((await evtRes.json()).events || [])
-    setDuplicates((await dupRes.json()).duplicates || [])
-    const graph = await graphRes.json()
-    setGraphData({ nodes: graph.nodes || [], links: graph.links || [] })
+    if (forceRefresh) invalidateCache("memories")
+    await fetchMemoriesIfStale()
     setIsLoading(false)
-  }, [])
+  }, [fetchMemoriesIfStale, invalidateCache])
 
   useEffect(() => { loadAll() }, [loadAll])
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this memory?")) return
     await fetch(`${API_URL}/memories/${encodeURIComponent(id)}`, { method: "DELETE" })
-    loadAll()
+    loadAll(true)
   }
 
   const handleEditClick = (item: Person | Event) => {
@@ -268,13 +247,13 @@ export default function MemoriesPage() {
       await fetch(`${API_URL}/memories/events/${editItem.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editForm) })
     }
     setIsEditDialogOpen(false)
-    loadAll()
+    loadAll(true)
   }
 
   const allItems: TableItem[] = useMemo(() => [
     ...people.map(p => ({ id: p.id, type: "Person" as MemoryType, content: p.name, extra: p.description, data: p })),
     ...events.map(e => ({ id: e.id, type: "Event" as MemoryType, content: e.description, extra: e.date, data: e })),
-    ...memories.filter(m => m.type === "Fact" || m.type === "Preference").map(m => ({ id: m.id, type: m.type, content: m.content, data: m })),
+    ...memories.filter(m => m.type === "Fact" || m.type === "Preference").map(m => ({ id: m.id, type: m.type as MemoryType, content: m.content, data: m })),
   ], [people, events, memories])
 
   const filteredByType = useMemo(() =>
@@ -471,7 +450,7 @@ export default function MemoriesPage() {
   return (
     <SidebarInset className="flex flex-col h-screen overflow-hidden">
       <PageHeader title="Memories" badge={counts.all}>
-        <Button variant="outline" size="sm" onClick={loadAll} disabled={isLoading}>
+        <Button variant="outline" size="sm" onClick={() => loadAll(true)} disabled={isLoading}>
           <RefreshCwIcon className={`size-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
           Refresh
         </Button>
@@ -698,7 +677,7 @@ export default function MemoriesPage() {
               ref={graphRef}
               graphData={graphData}
               nodeLabel="name"
-              nodeColor={(node: GraphNode) => {
+              nodeColor={(node: any) => {
                 switch (node.type) {
                   case "User": return "#22c55e"
                   case "Person": return "#8b5cf6"

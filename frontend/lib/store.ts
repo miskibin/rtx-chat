@@ -1,6 +1,22 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
+const CACHE_DURATIONS = {
+  models: 10 * 60 * 1000,
+  modes: 10 * 60 * 1000,
+  conversations: 30 * 1000,
+  memories: 60 * 1000,
+}
+
+type CacheTimestamps = {
+  models: number
+  modes: number
+  conversations: number
+  memories: number
+}
+
 type Attachment = { id: string; name: string; type: string; size: number; data: string }
 type ToolCall = { name: string; status: "started" | "completed" | "pending_confirmation" | "denied"; input?: Record<string, unknown>; output?: string; artifacts?: string[]; id?: string; category?: string }
 type MemorySearchOp = { type: "search"; status: "started" | "completed"; query?: string; memories?: string[] }
@@ -14,6 +30,14 @@ type Model = { name: string; supports_tools: boolean; supports_thinking: boolean
 type PromptVariable = { name: string; desc: string }
 type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean }
 type ConversationMeta = { id: string; title: string; updated_at: string; mode: string; model: string }
+type Person = { id: string; name: string; description: string; relation: string; sentiment: string }
+type Event = { id: string; description: string; date: string; participants: string[] }
+type Memory = { id: string; type: string; content: string }
+type Duplicate = { id1: string; id2: string; content1: string; content2: string; score: number; type: string }
+type GraphNode = { id: string; type: string; name: string }
+type GraphLink = { source: string; target: string; type: string }
+type GraphData = { nodes: GraphNode[]; links: GraphLink[] }
+type MemoriesData = { memories: Memory[]; people: Person[]; events: Event[]; duplicates: Duplicate[]; graphData: GraphData }
 
 type ChatStore = {
   messages: MessageType[]
@@ -27,12 +51,12 @@ type ChatStore = {
   availableModes: ModeData[]
   promptVariables: PromptVariable[]
   allTools: string[]
-  // Conversation management
   conversations: ConversationMeta[]
   currentConversationId: string | null
-  // Settings
   titleGeneration: boolean
   autoSave: boolean
+  memoriesData: MemoriesData
+  cacheTimestamps: CacheTimestamps
   setMessages: (fn: (msgs: MessageType[]) => MessageType[]) => void
   addMessage: (msg: MessageType) => void
   setInput: (input: string) => void
@@ -44,19 +68,25 @@ type ChatStore = {
   setSelectedMode: (mode: string) => void
   setAvailableModes: (modes: ModeData[], variables: PromptVariable[], allTools: string[]) => void
   clearMessages: () => void
-  // Conversation actions
   setConversations: (conversations: ConversationMeta[]) => void
   setCurrentConversationId: (id: string | null) => void
   loadConversation: (id: string, messages: MessageType[], mode?: string, model?: string) => void
   startNewConversation: () => void
-  // Settings actions
   setTitleGeneration: (enabled: boolean) => void
   setAutoSave: (enabled: boolean) => void
+  setMemoriesData: (data: MemoriesData) => void
+  fetchModelsIfStale: () => Promise<Model[]>
+  fetchModesIfStale: () => Promise<ModeData[]>
+  fetchConversationsIfStale: () => Promise<ConversationMeta[]>
+  fetchMemoriesIfStale: () => Promise<MemoriesData>
+  invalidateCache: (key: keyof CacheTimestamps) => void
 }
+
+const isCacheValid = (timestamp: number, duration: number) => Date.now() - timestamp < duration
 
 export const useChatStore = create<ChatStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       messages: [],
       input: "",
       status: "ready",
@@ -72,6 +102,8 @@ export const useChatStore = create<ChatStore>()(
       currentConversationId: null,
       titleGeneration: true,
       autoSave: true,
+      memoriesData: { memories: [], people: [], events: [], duplicates: [], graphData: { nodes: [], links: [] } },
+      cacheTimestamps: { models: 0, modes: 0, conversations: 0, memories: 0 },
       setMessages: (fn) => set((state) => ({ messages: fn(state.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setInput: (input) => set({ input }),
@@ -94,6 +126,75 @@ export const useChatStore = create<ChatStore>()(
       startNewConversation: () => set({ messages: [], currentConversationId: null }),
       setTitleGeneration: (titleGeneration) => set({ titleGeneration }),
       setAutoSave: (autoSave) => set({ autoSave }),
+      setMemoriesData: (memoriesData) => set({ memoriesData }),
+      invalidateCache: (key) => set((state) => ({ cacheTimestamps: { ...state.cacheTimestamps, [key]: 0 } })),
+
+      fetchModelsIfStale: async () => {
+        const state = get()
+        if (state.models.length > 0 && isCacheValid(state.cacheTimestamps.models, CACHE_DURATIONS.models)) {
+          return state.models
+        }
+        const res = await fetch(`${API_URL}/models`)
+        const data = await res.json()
+        const models = data.models || []
+        set({ models, cacheTimestamps: { ...get().cacheTimestamps, models: Date.now() } })
+        return models
+      },
+
+      fetchModesIfStale: async () => {
+        const state = get()
+        if (state.availableModes.length > 0 && isCacheValid(state.cacheTimestamps.modes, CACHE_DURATIONS.modes)) {
+          return state.availableModes
+        }
+        const res = await fetch(`${API_URL}/modes`)
+        const data = await res.json()
+        const modes = data.modes || []
+        set({ 
+          availableModes: modes, 
+          promptVariables: data.variables || [], 
+          allTools: data.all_tools || [],
+          cacheTimestamps: { ...get().cacheTimestamps, modes: Date.now() } 
+        })
+        return modes
+      },
+
+      fetchConversationsIfStale: async () => {
+        const state = get()
+        if (state.conversations.length > 0 && isCacheValid(state.cacheTimestamps.conversations, CACHE_DURATIONS.conversations)) {
+          return state.conversations
+        }
+        const res = await fetch(`${API_URL}/conversations`)
+        const data = await res.json()
+        const conversations = data.conversations || []
+        set({ conversations, cacheTimestamps: { ...get().cacheTimestamps, conversations: Date.now() } })
+        return conversations
+      },
+
+      fetchMemoriesIfStale: async () => {
+        const state = get()
+        if (state.memoriesData.memories.length > 0 && isCacheValid(state.cacheTimestamps.memories, CACHE_DURATIONS.memories)) {
+          return state.memoriesData
+        }
+        const [memRes, pplRes, evtRes, dupRes, graphRes] = await Promise.all([
+          fetch(`${API_URL}/memories?limit=100`),
+          fetch(`${API_URL}/memories/people`),
+          fetch(`${API_URL}/memories/events`),
+          fetch(`${API_URL}/memories/duplicates?threshold=0.90&limit=20`),
+          fetch(`${API_URL}/memories/graph`)
+        ])
+        const [memData, pplData, evtData, dupData, graphData] = await Promise.all([
+          memRes.json(), pplRes.json(), evtRes.json(), dupRes.json(), graphRes.json()
+        ])
+        const memoriesData: MemoriesData = {
+          memories: memData.memories || [],
+          people: pplData.people || [],
+          events: evtData.events || [],
+          duplicates: dupData.duplicates || [],
+          graphData: { nodes: graphData.nodes || [], links: graphData.links || [] }
+        }
+        set({ memoriesData, cacheTimestamps: { ...get().cacheTimestamps, memories: Date.now() } })
+        return memoriesData
+      },
     }),
     {
       name: "chat-storage",
@@ -104,12 +205,12 @@ export const useChatStore = create<ChatStore>()(
         currentConversationId: state.currentConversationId,
         titleGeneration: state.titleGeneration,
         autoSave: state.autoSave,
-        // Cache available options for instant loading
         models: state.models,
         availableModes: state.availableModes,
+        cacheTimestamps: state.cacheTimestamps,
       }),
     }
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable, ConversationMeta }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData }

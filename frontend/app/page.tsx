@@ -150,7 +150,6 @@ export default function Home() {
     status,
     setStatus,
     models,
-    setModels,
     selectedModel,
     setSelectedModel,
     currentThinkingId,
@@ -160,12 +159,15 @@ export default function Home() {
     selectedMode,
     setSelectedMode,
     availableModes,
-    setAvailableModes,
     currentConversationId,
     setCurrentConversationId,
     setConversations,
     titleGeneration,
     autoSave,
+    fetchModelsIfStale,
+    fetchModesIfStale,
+    fetchConversationsIfStale,
+    invalidateCache,
   } = useChatStore();
   const abortRef = useRef<AbortController | null>(null);
   const thinkingIdRef = useRef<string | null>(null);
@@ -174,29 +176,24 @@ export default function Home() {
   const [editContent, setEditContent] = useState("");
 
   useEffect(() => {
-    // Refresh modes and models from API (cached data shows immediately from store)
-    fetch(`${API_URL}/modes`).then(r => r.json()).then(d => {
-      const modes = d.modes || [];
-      setAvailableModes(modes, d.variables || [], d.all_tools || []);
+    const loadSettings = async () => {
+      const [modes, allModels] = await Promise.all([
+        fetchModesIfStale(),
+        fetchModelsIfStale()
+      ]);
       
-      // Only set default if NO mode was previously selected
       const currentMode = useChatStore.getState().selectedMode;
       if (!currentMode && modes.length > 0) {
         setSelectedMode(modes[0].name);
       }
-    });
-    
-    fetch(`${API_URL}/models`).then(r => r.json()).then(d => {
-      const allModels = d.models || [];
-      setModels(allModels);
       
-      // Only set default if NO model was previously selected
       const currentModel = useChatStore.getState().selectedModel;
       if (!currentModel && allModels.length > 0) {
         const toolModels = allModels.filter((m: { supports_tools: boolean }) => m.supports_tools);
         setSelectedModel(toolModels.length > 0 ? toolModels[0].name : allModels[0].name);
       }
-    });
+    };
+    loadSettings();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -235,14 +232,12 @@ export default function Home() {
 
     try {
       if (convId) {
-        // Update existing conversation (don't regenerate title)
         await fetch(`${API_URL}/conversations/${convId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ messages: messagesJson }),
         });
       } else {
-        // Create new conversation - generate title with LLM from first exchange
         const firstUserMsg = msgs.find(m => m.role === "user");
         const firstAssistantMsg = msgs.find(m => m.role === "assistant");
         const title = await generateTitle(
@@ -262,15 +257,13 @@ export default function Home() {
         });
         const data = await res.json();
         setCurrentConversationId(data.id);
-        // Refresh conversation list
-        const listRes = await fetch(`${API_URL}/conversations`);
-        const listData = await listRes.json();
-        setConversations(listData.conversations || []);
+        invalidateCache("conversations");
+        fetchConversationsIfStale();
       }
     } catch (e) {
       console.error("Failed to save conversation:", e);
     }
-  }, [selectedMode, selectedModel, setCurrentConversationId, setConversations]);
+  }, [selectedMode, selectedModel, setCurrentConversationId, invalidateCache, fetchConversationsIfStale]);
 
   // Debounced auto-save when messages change
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);

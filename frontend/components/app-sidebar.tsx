@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
-import { useEffect, useCallback } from "react"
+import { useEffect } from "react"
 import { Sidebar, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Trash2Icon, DatabaseIcon, MessageSquareIcon, SettingsIcon, PlusIcon } from "lucide-react"
@@ -30,27 +30,17 @@ export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const { 
-    clearMessages, 
     conversations, 
-    setConversations, 
     currentConversationId, 
     loadConversation,
     startNewConversation,
+    fetchConversationsIfStale,
+    invalidateCache,
   } = useChatStore()
 
-  const fetchConversations = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_URL}/conversations`)
-      const data = await res.json()
-      setConversations(data.conversations || [])
-    } catch (e) {
-      console.error("Failed to fetch conversations:", e)
-    }
-  }, [setConversations])
-
   useEffect(() => {
-    fetchConversations()
-  }, [fetchConversations])
+    fetchConversationsIfStale()
+  }, [fetchConversationsIfStale])
 
   const handleNewChat = async () => {
     await fetch(`${API_URL}/chat/clear`, { method: "POST" })
@@ -79,7 +69,8 @@ export function AppSidebar() {
       if (convId === currentConversationId) {
         startNewConversation()
       }
-      fetchConversations()
+      invalidateCache("conversations")
+      fetchConversationsIfStale()
     } catch (e) {
       console.error("Failed to delete conversation:", e)
     }
