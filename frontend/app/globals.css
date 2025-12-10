@@ -189,3 +189,10 @@
     letter-spacing: var(--tracking-normal);
   }
 }
+
+.chat-prose {
+  line-height: 1.6;
+  font-family: var(--font-serif);
+}
+.chat-prose p { margin-bottom: 1em; }
+.chat-prose code { font-family: var(--font-mono); }
