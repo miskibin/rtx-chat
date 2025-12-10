@@ -179,3 +179,69 @@ class Mode(BaseModel):
     def delete(name: str):
         with _driver.session() as session:
             session.run("MATCH (m:Mode {name: $name}) DELETE m", name=name)
+
+
+class Conversation(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    messages: str  # JSON-serialized full message array
+    mode: str = "psychological"
+    model: str = "qwen3:4b"
+
+    def save(self) -> str:
+        with _driver.session() as session:
+            session.run(
+                """
+                MERGE (c:Conversation {id: $id})
+                SET c.title = $title,
+                    c.created_at = $created_at,
+                    c.updated_at = $updated_at,
+                    c.messages = $messages,
+                    c.mode = $mode,
+                    c.model = $model
+                """,
+                **self.model_dump()
+            )
+        return self.id
+
+    def update_messages(self, messages: str) -> str:
+        self.messages = messages
+        self.updated_at = datetime.now().isoformat()
+        return self.save()
+
+    @staticmethod
+    def get(conversation_id: str) -> "Conversation | None":
+        with _driver.session() as session:
+            rec = session.run(
+                "MATCH (c:Conversation {id: $id}) RETURN c",
+                id=conversation_id
+            ).single()
+            return Conversation(**dict(rec["c"])) if rec else None
+
+    @staticmethod
+    def all() -> list["Conversation"]:
+        with _driver.session() as session:
+            return [
+                Conversation(**dict(r["c"]))
+                for r in session.run(
+                    "MATCH (c:Conversation) RETURN c ORDER BY c.updated_at DESC"
+                )
+            ]
+
+    @staticmethod
+    def all_metadata() -> list[dict]:
+        """Return only id, title, updated_at for listing (without full messages)."""
+        with _driver.session() as session:
+            return [
+                {"id": r["c"]["id"], "title": r["c"]["title"], "updated_at": r["c"]["updated_at"], "mode": r["c"]["mode"], "model": r["c"]["model"]}
+                for r in session.run(
+                    "MATCH (c:Conversation) RETURN c ORDER BY c.updated_at DESC"
+                )
+            ]
+
+    @staticmethod
+    def delete(conversation_id: str):
+        with _driver.session() as session:
+            session.run("MATCH (c:Conversation {id: $id}) DELETE c", id=conversation_id)

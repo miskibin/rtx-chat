@@ -13,6 +13,7 @@ type MessageType = { id: string; role: "user" | "assistant"; content: string; th
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean; supports_vision: boolean }
 type PromptVariable = { name: string; desc: string }
 type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean }
+type ConversationMeta = { id: string; title: string; updated_at: string; mode: string; model: string }
 
 type ChatStore = {
   messages: MessageType[]
@@ -26,6 +27,9 @@ type ChatStore = {
   availableModes: ModeData[]
   promptVariables: PromptVariable[]
   allTools: string[]
+  // Conversation management
+  conversations: ConversationMeta[]
+  currentConversationId: string | null
   setMessages: (fn: (msgs: MessageType[]) => MessageType[]) => void
   addMessage: (msg: MessageType) => void
   setInput: (input: string) => void
@@ -37,6 +41,11 @@ type ChatStore = {
   setSelectedMode: (mode: string) => void
   setAvailableModes: (modes: ModeData[], variables: PromptVariable[], allTools: string[]) => void
   clearMessages: () => void
+  // Conversation actions
+  setConversations: (conversations: ConversationMeta[]) => void
+  setCurrentConversationId: (id: string | null) => void
+  loadConversation: (id: string, messages: MessageType[], mode?: string, model?: string) => void
+  startNewConversation: () => void
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -53,6 +62,8 @@ export const useChatStore = create<ChatStore>()(
       availableModes: [],
       promptVariables: [],
       allTools: [],
+      conversations: [],
+      currentConversationId: null,
       setMessages: (fn) => set((state) => ({ messages: fn(state.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setInput: (input) => set({ input }),
@@ -63,7 +74,16 @@ export const useChatStore = create<ChatStore>()(
       setEditingMessageId: (editingMessageId) => set({ editingMessageId }),
       setSelectedMode: (selectedMode) => set({ selectedMode }),
       setAvailableModes: (modes, variables, allTools) => set({ availableModes: modes, promptVariables: variables, allTools }),
-      clearMessages: () => set({ messages: [] }),
+      clearMessages: () => set({ messages: [], currentConversationId: null }),
+      setConversations: (conversations) => set({ conversations }),
+      setCurrentConversationId: (currentConversationId) => set({ currentConversationId }),
+      loadConversation: (id, messages, mode, model) => set({ 
+        currentConversationId: id, 
+        messages,
+        ...(mode && { selectedMode: mode }),
+        ...(model && { selectedModel: model }),
+      }),
+      startNewConversation: () => set({ messages: [], currentConversationId: null }),
     }),
     {
       name: "chat-storage",
@@ -71,9 +91,10 @@ export const useChatStore = create<ChatStore>()(
         messages: state.messages,
         selectedModel: state.selectedModel,
         selectedMode: state.selectedMode,
+        currentConversationId: state.currentConversationId,
       }),
     }
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable, ConversationMeta }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
   Conversation,
@@ -101,6 +101,7 @@ import {
   type MemoryOp,
   type ThinkingBlock,
   type MessageBranch,
+  type MessageType,
 } from "@/lib/store";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -159,6 +160,9 @@ export default function Home() {
     setSelectedMode,
     availableModes,
     setAvailableModes,
+    currentConversationId,
+    setCurrentConversationId,
+    setConversations,
   } = useChatStore();
   const abortRef = useRef<AbortController | null>(null);
   const thinkingIdRef = useRef<string | null>(null);
@@ -185,6 +189,93 @@ export default function Home() {
         }
       });
   }, [selectedModel, setSelectedModel, setModels]);
+
+  // Generate title using LLM based on first user + assistant exchange
+  const generateTitle = async (userMsg: string, assistantMsg: string): Promise<string> => {
+    if (!userMsg) return "New chat";
+    try {
+      const res = await fetch(`${API_URL}/conversations/generate-title`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          user_message: userMsg, 
+          assistant_message: assistantMsg,
+          model: selectedModel 
+        }),
+      });
+      const data = await res.json();
+      return data.title || "New chat";
+    } catch (e) {
+      // Fallback to simple truncation
+      return userMsg.slice(0, 30) + (userMsg.length > 30 ? "..." : "");
+    }
+  };
+
+  // Save conversation to backend
+  const saveConversation = useCallback(async (msgs: MessageType[], convId: string | null) => {
+    if (msgs.length === 0) return;
+    
+    const messagesJson = JSON.stringify(msgs);
+
+    try {
+      if (convId) {
+        // Update existing conversation (don't regenerate title)
+        await fetch(`${API_URL}/conversations/${convId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: messagesJson }),
+        });
+      } else {
+        // Create new conversation - generate title with LLM from first exchange
+        const firstUserMsg = msgs.find(m => m.role === "user");
+        const firstAssistantMsg = msgs.find(m => m.role === "assistant");
+        const title = await generateTitle(
+          firstUserMsg?.content || "", 
+          firstAssistantMsg?.content || ""
+        );
+        
+        const res = await fetch(`${API_URL}/conversations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            messages: messagesJson,
+            mode: selectedMode,
+            model: selectedModel,
+          }),
+        });
+        const data = await res.json();
+        setCurrentConversationId(data.id);
+        // Refresh conversation list
+        const listRes = await fetch(`${API_URL}/conversations`);
+        const listData = await listRes.json();
+        setConversations(listData.conversations || []);
+      }
+    } catch (e) {
+      console.error("Failed to save conversation:", e);
+    }
+  }, [selectedMode, selectedModel, setCurrentConversationId, setConversations]);
+
+  // Debounced auto-save when messages change
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    // Only save if we have at least one assistant message with content
+    const hasContent = messages.some(m => m.role === "assistant" && m.content);
+    if (!hasContent) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      saveConversation(messages, currentConversationId);
+    }, 1000); // Debounce 1 second
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [messages, currentConversationId, saveConversation]);
 
   const sendMessage = async (
     message: string,
