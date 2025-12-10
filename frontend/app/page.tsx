@@ -168,6 +168,7 @@ export default function Home() {
     fetchModesIfStale,
     fetchConversationsIfStale,
     invalidateCache,
+    _hasHydrated,
   } = useChatStore();
   const abortRef = useRef<AbortController | null>(null);
   const thinkingIdRef = useRef<string | null>(null);
@@ -176,6 +177,12 @@ export default function Home() {
   const [editContent, setEditContent] = useState("");
 
   useEffect(() => {
+    useChatStore.persist.rehydrate();
+  }, []);
+
+  useEffect(() => {
+    if (!_hasHydrated) return;
+    
     const loadSettings = async () => {
       const [modes, allModels] = await Promise.all([
         fetchModesIfStale(),
@@ -195,7 +202,7 @@ export default function Home() {
     };
     loadSettings();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [_hasHydrated]);
 
   // Generate title using LLM based on first user + assistant exchange
   const generateTitle = async (userMsg: string, assistantMsg: string): Promise<string> => {
@@ -1291,7 +1298,7 @@ export default function Home() {
 
                 <PromptInputSelect
                   value={selectedMode}
-                  onValueChange={(v) => setSelectedMode(v)}
+                  onValueChange={(v) => v && setSelectedMode(v)}
                 >
                   <PromptInputSelectTrigger className="w-[140px]">
                     <PromptInputSelectValue placeholder="Mode" />
@@ -1307,7 +1314,7 @@ export default function Home() {
 
                 <PromptInputSelect
                   value={selectedModel}
-                  onValueChange={setSelectedModel}
+                  onValueChange={(v) => v && setSelectedModel(v)}
                 >
                   <PromptInputSelectTrigger className="w-[180px]">
                     <PromptInputSelectValue placeholder="Model" />

@@ -80,6 +80,8 @@ type ChatStore = {
   fetchConversationsIfStale: () => Promise<ConversationMeta[]>
   fetchMemoriesIfStale: () => Promise<MemoriesData>
   invalidateCache: (key: keyof CacheTimestamps) => void
+  _hasHydrated: boolean
+  setHasHydrated: (state: boolean) => void
 }
 
 const isCacheValid = (timestamp: number, duration: number) => Date.now() - timestamp < duration
@@ -128,6 +130,8 @@ export const useChatStore = create<ChatStore>()(
       setAutoSave: (autoSave) => set({ autoSave }),
       setMemoriesData: (memoriesData) => set({ memoriesData }),
       invalidateCache: (key) => set((state) => ({ cacheTimestamps: { ...state.cacheTimestamps, [key]: 0 } })),
+      _hasHydrated: false,
+      setHasHydrated: (state) => set({ _hasHydrated: state }),
 
       fetchModelsIfStale: async () => {
         const state = get()
@@ -198,6 +202,7 @@ export const useChatStore = create<ChatStore>()(
     }),
     {
       name: "chat-storage",
+      skipHydration: true,
       partialize: (state) => ({
         messages: state.messages,
         selectedModel: state.selectedModel,
@@ -209,6 +214,9 @@ export const useChatStore = create<ChatStore>()(
         availableModes: state.availableModes,
         cacheTimestamps: state.cacheTimestamps,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true)
+      },
     }
   )
 )
