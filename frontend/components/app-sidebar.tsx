@@ -5,11 +5,9 @@ import Link from "next/link"
 import Image from "next/image"
 import { useEffect, useCallback } from "react"
 import { Sidebar, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar"
-import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Trash2Icon, DatabaseIcon, MessageSquareIcon, SettingsIcon, PlusIcon } from "lucide-react"
 import { useChatStore, ConversationMeta, MessageType } from "@/lib/store"
-import { ModeToggle } from "@/components/mode-toggle"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -89,15 +87,18 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4 flex flex-row items-center justify-between">
+      <SidebarHeader className="p-4">
         <Image src="/logo.png" alt="Logo" width={32} height={32} className="w-8 h-8" />
-        <ModeToggle />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={handleNewChat}>
+                  <PlusIcon className="size-4" /> New Chat
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={pathname === "/"}>
                   <Link href="/"><MessageSquareIcon className="size-4" /> Chat</Link>
@@ -118,12 +119,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="flex-1">
-          <div className="flex items-center justify-between px-2 mb-1">
-            <SidebarGroupLabel className="mb-0">History</SidebarGroupLabel>
-            <Button variant="ghost" size="icon" className="size-6" onClick={handleNewChat} title="New Chat">
-              <PlusIcon className="size-4" />
-            </Button>
-          </div>
+          <SidebarGroupLabel>History</SidebarGroupLabel>
           <SidebarGroupContent className="flex-1">
             <ScrollArea className="h-[calc(100vh-320px)]">
               <div className="space-y-1 pr-2">

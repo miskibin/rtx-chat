@@ -63,7 +63,8 @@ import {
   ConfirmationAccepted,
   ConfirmationRejected,
 } from "@/components/ai-elements/confirmation";
-import { SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
+import { SidebarInset } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   CodeBlock,
   CodeBlockBody,
@@ -172,25 +173,49 @@ export default function Home() {
   const [openItems, setOpenItems] = useState<Set<string>>(new Set());
   const [editContent, setEditContent] = useState("");
 
+  // Track if initial data has been loaded
+  const [initialized, setInitialized] = useState(false);
+  
   useEffect(() => {
-    fetch(`${API_URL}/modes`).then(r => r.json()).then(d => setAvailableModes(d.modes || [], d.variables || [], d.all_tools || []))
-    fetch(`${API_URL}/models`)
-      .then((r) => r.json())
-      .then((d) => {
-        const allModels = d.models || [];
-        setModels(allModels);
-        if (!selectedModel || selectedModel.trim() === "") {
-          const toolModels = allModels.filter(
-            (m: { supports_tools: boolean }) => m.supports_tools
-          );
+    Promise.all([
+      fetch(`${API_URL}/modes`).then(r => r.json()),
+      fetch(`${API_URL}/models`).then(r => r.json())
+    ]).then(([modesData, modelsData]) => {
+      const modes = modesData.modes || [];
+      const allModels = modelsData.models || [];
+      
+      setAvailableModes(modes, modesData.variables || [], modesData.all_tools || []);
+      setModels(allModels);
+      
+      // Get current values after APIs have loaded
+      const currentMode = useChatStore.getState().selectedMode;
+      const currentModel = useChatStore.getState().selectedModel;
+      
+      // Set default mode if empty or invalid
+      if (modes.length > 0) {
+        const modeExists = currentMode && modes.some((m: { name: string }) => m.name === currentMode);
+        if (!modeExists) {
+          setSelectedMode(modes[0].name);
+        }
+      }
+      
+      // Set default model if empty or invalid
+      if (allModels.length > 0) {
+        const modelExists = currentModel && allModels.some((m: { name: string }) => m.name === currentModel);
+        if (!modelExists) {
+          const toolModels = allModels.filter((m: { supports_tools: boolean }) => m.supports_tools);
           if (toolModels.length > 0) {
             setSelectedModel(toolModels[0].name);
-          } else if (allModels.length > 0) {
+          } else {
             setSelectedModel(allModels[0].name);
           }
         }
-      });
-  }, [selectedModel, setSelectedModel, setModels]);
+      }
+      
+      setInitialized(true);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Generate title using LLM based on first user + assistant exchange
   const generateTitle = async (userMsg: string, assistantMsg: string): Promise<string> => {
@@ -364,8 +389,8 @@ export default function Home() {
             content: m.content,
             experimental_attachments: m.experimental_attachments,
           })),
-          model: selectedModel || "qwen3:4b",
-          mode: selectedMode || "psychological",
+          model: selectedModel,
+          mode: selectedMode,
         }),
         signal: abortRef.current.signal,
       });
@@ -798,10 +823,7 @@ export default function Home() {
 
   return (
     <SidebarInset className="flex flex-col h-screen overflow-hidden">
-      <header className="flex items-center gap-2 border-b px-4 py-2">
-        <SidebarTrigger />
-        <span className="text-sm font-medium">Chat</span>
-      </header>
+      <PageHeader title="Chat" />
 
       <Conversation className="flex-1 overflow-hidden">
         <ConversationContent className="mx-auto w-full max-w-4xl px-4 ">
@@ -1329,7 +1351,7 @@ export default function Home() {
               </PromptInputTools>
 
               <PromptInputSubmit 
-                disabled={!input && status !== "streaming"} 
+                disabled={(!input && status !== "streaming") || !selectedModel || !initialized} 
                 status={status}
                 onClick={(e) => {
                   if (status === "streaming" && abortRef.current) {

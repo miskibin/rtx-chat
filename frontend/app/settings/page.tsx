@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
-import { SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
+import { SidebarInset } from "@/components/ui/sidebar"
+import { PageHeader } from "@/components/page-header"
 import { 
-  SettingsIcon, 
   Trash2, 
   AlertTriangle, 
   PlusIcon, 
@@ -17,14 +17,13 @@ import {
   SparklesIcon,
   MessageSquareIcon
 } from "lucide-react"
-import { useChatStore, ModeData, PromptVariable, Model } from "@/lib/store"
+import { useChatStore, ModeData, PromptVariable } from "@/lib/store"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -33,12 +32,7 @@ type ToolsByCategory = Record<string, { label: string; tools: { name: string; de
 export default function SettingsPage() {
   const { 
     setAvailableModes, 
-    models, 
     setModels,
-    selectedModel,
-    setSelectedModel,
-    selectedMode,
-    setSelectedMode,
     titleGeneration,
     setTitleGeneration,
     autoSave,
@@ -130,15 +124,10 @@ export default function SettingsPage() {
     setEditingMode({ ...editingMode, enabled_tools: Array.from(tools) })
   }
 
-  const toolCapableModels = models.filter(m => m.supports_tools)
 
   return (
     <SidebarInset className="flex flex-col h-screen bg-background">
-      <header className="flex items-center border-b px-6 py-4 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <SidebarTrigger />
-        <SettingsIcon className="size-5 text-muted-foreground ml-2" />
-        <h1 className="text-lg font-semibold ml-2">Settings</h1>
-      </header>
+      <PageHeader title="Settings" />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
         <div className="border-b px-6">
@@ -159,67 +148,6 @@ export default function SettingsPage() {
         <TabsContent value="general" className="flex-1 overflow-auto mt-0 p-6">
           <div className="mx-auto max-w-2xl space-y-6">
             
-            {/* Defaults Section */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <SlidersHorizontalIcon className="size-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">Defaults</CardTitle>
-                    <CardDescription>Default model and mode for new conversations</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Default Model</Label>
-                    <Select value={selectedModel} onValueChange={setSelectedModel}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select model" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {toolCapableModels.map(m => (
-                          <SelectItem key={m.name} value={m.name}>
-                            <div className="flex items-center gap-2">
-                              <span>{m.name}</span>
-                              {m.supports_thinking && <BrainIcon className="size-3 text-muted-foreground" />}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {toolCapableModels.length} model(s) with tool support
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Default Mode</Label>
-                    <Select value={selectedMode} onValueChange={setSelectedMode}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select mode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {modes.map(m => (
-                          <SelectItem key={m.name} value={m.name}>
-                            <div className="flex items-center gap-2">
-                              <span>{m.name}</span>
-                              {m.is_template && <Badge variant="outline" className="text-[10px]">template</Badge>}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Configure modes in the Modes tab
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Conversation Section */}
             <Card>
               <CardHeader>

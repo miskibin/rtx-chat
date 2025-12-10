@@ -61,10 +61,10 @@ export const useChatStore = create<ChatStore>()(
       input: "",
       status: "ready",
       models: [],
-      selectedModel: "qwen3:4b",
+      selectedModel: "",
       currentThinkingId: null,
       editingMessageId: null,
-      selectedMode: "psychological",
+      selectedMode: "",
       availableModes: [],
       promptVariables: [],
       allTools: [],
@@ -105,6 +105,13 @@ export const useChatStore = create<ChatStore>()(
         titleGeneration: state.titleGeneration,
         autoSave: state.autoSave,
       }),
+      onRehydrateStorage: () => (state) => {
+        // Clear invalid persisted values on hydration
+        if (state) {
+          if (!state.selectedModel) state.selectedModel = "";
+          if (!state.selectedMode) state.selectedMode = "";
+        }
+      },
     }
   )
 )
