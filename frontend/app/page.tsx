@@ -762,7 +762,7 @@ export default function Home() {
                           </div>
                         </div>
                       ) : (
-                        msg.content
+                        <MessageResponse>{msg.content}</MessageResponse>
                       )
                     ) : (
                       <>

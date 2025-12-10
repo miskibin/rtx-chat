@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+from app.agent import DEFAULT_PROMPT
 from app.graph_models import Mode
 from app.tools import get_tools, get_tools_by_category
 
@@ -21,14 +22,7 @@ Be brief.""",
         "max_tool_runs": 5,
     },
     "normal": {
-        "prompt": """You are a helpful AI assistant.
-Current date and time: {datetime}
-
-{user_preferences}
-
-{memories}
-
-Be concise and helpful.""",
+        "prompt": DEFAULT_PROMPT,
         "enabled_tools": ALL_TOOL_NAMES,
         "max_memories": 5,
         "max_tool_runs": 10,
