@@ -311,6 +311,7 @@ class ConversationManager:
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
             "tokens_per_second": round(tokens_per_second, 1),
+            "model": self.model_name,
         }
 
     def clear(self):

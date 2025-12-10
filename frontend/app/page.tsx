@@ -1192,6 +1192,12 @@ export default function Home() {
                           <PopoverContent className="w-64 p-3">
                             <div className="space-y-2 text-sm">
                               <div className="font-medium mb-2">Response Metadata</div>
+                              {msg.metadata.model && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Model:</span>
+                                  <span className="font-mono text-xs">{msg.metadata.model}</span>
+                                </div>
+                              )}
                               <div className="flex justify-between">
                                 <span className="text-muted-foreground">Time:</span>
                                 <span>{msg.metadata.elapsed_time}s</span>

@@ -42,11 +42,22 @@ def list_people() -> list[str]:
         return [r["name"] for r in result]
 
 
-SIMILARITY_THRESHOLD = 0.8
+SIMILARITY_THRESHOLD = 0.65
+
 
 @tool
-def retrieve_context(query: str, entity_names: list[str] = [], node_labels: list[str] = [], limit: int = 5) -> str:
-    """Search memories by query or entity names. Returns people, events, facts."""
+def retrieve_context(
+    query: str, entity_names: list[str] = [], node_labels: list[str] = [], limit: int = 5
+) -> str:
+    """Semantic search in memory database. Returns facts, people, events, preferences.
+    
+    Args:
+        query: Search text. Use descriptive phrases like "user's work", "hobbies", "family members"
+        entity_names: ONLY for Person lookup by exact name, e.g. ["Oliwka", "Jan"]. NOT for "User"!
+        node_labels: Filter results: ["Person", "Fact", "Event", "Preference"]
+    
+    To get ALL user info, use list_all_memories() instead.
+    """
     label_to_model = {"Person": Person, "Event": Event, "Fact": Fact, "Preference": Preference}
     
     with get_session() as session:
@@ -124,7 +135,7 @@ def retrieve_context(query: str, entity_names: list[str] = [], node_labels: list
 
 @tool
 def get_user_preferences() -> str:
-    """Get user preferences for AI behavior."""
+    """Get stored AI behavior preferences (communication style, format, topics to avoid)."""
     with get_session() as session:
         result = session.run("MATCH (u:User)-[:HAS_PREFERENCE]->(p:Preference) RETURN p.instruction as instruction")
         prefs = [r["instruction"] for r in result]
@@ -133,7 +144,7 @@ def get_user_preferences() -> str:
 
 @tool
 def check_relationship(person_name: str) -> str:
-    """Check relationship between User and a Person."""
+    """Get User's relationship with a person: type, sentiment, since when, events."""
     with get_session() as session:
         result = session.run(
             """MATCH (u:User)-[r:KNOWS]->(p:Person {name: $name})
@@ -158,7 +169,12 @@ def add_or_update_person(
     relation_type: str | None = None,
     sentiment: Literal["positive", "negative", "neutral", "complicated"] | None = None,
 ) -> str:
-    """Add or update a person and their relationship with User."""
+    """Save a person to memory.
+    
+    Examples:
+        name="Oliwka", description="colleague", relation_type="coworker", sentiment="positive"
+        name="Jan", description="brother", relation_type="family", sentiment="positive"
+    """
     person = Person(name=name, description=description or "")
     person.save()
     
@@ -176,7 +192,11 @@ def add_or_update_person(
 
 @tool
 def add_event(description: str, participants: list[str], mentioned_people: list[str] = [], date: str | None = None) -> str:
-    """Add an event with participants."""
+    """Save an event. Participants must exist in memory first!
+    
+    Examples:
+        description="Trip to Kraków", participants=["Jan", "Oliwka"], date="2024-03-15"
+    """
     date = date or datetime.now().date().isoformat()
     event = Event(description=description, date=date)
     event.save()
@@ -197,7 +217,12 @@ def add_event(description: str, participants: list[str], mentioned_people: list[
 
 @tool
 def add_fact(content: str, category: str) -> str:
-    """Add a fact about the user."""
+    """Save a fact about user.
+    
+    Examples:
+        content="Has dog named Rex", category="personal"
+        content="Works as programmer", category="work"
+    """
     fact = Fact(content=content, category=category)
     embedding = _embeddings.embed_query(fact.embedding_text)
     is_dup, dup_id, score, existing = check_duplicate("Fact", embedding)
@@ -211,7 +236,10 @@ def add_fact(content: str, category: str) -> str:
 
 @tool
 def add_preference(instruction: str) -> str:
-    """Add a user preference for AI behavior."""
+    """Save AI behavior preference.
+    
+    Examples: "Always respond in Polish", "Keep answers short", "Avoid politics"
+    """
     pref = Preference(instruction=instruction)
     embedding = _embeddings.embed_query(pref.embedding_text)
     is_dup, dup_id, score, existing = check_duplicate("Preference", embedding)
@@ -230,7 +258,7 @@ def add_or_update_relationship(
     relation_type: str,
     sentiment: Literal["positive", "negative", "neutral", "complicated"] | None = None,
 ) -> str:
-    """Add or update relationship between two people."""
+    """Link two people (not User). Example: start_person="Jan", end_person="Oliwka", relation_type="married" """
     with get_session() as session:
         session.run(
             "MATCH (p1:Person {name: $start}) MATCH (p2:Person {name: $end}) MERGE (p1)-[r:KNOWS]->(p2) SET r.relation_type = $rel, r.sentiment = $sent",
@@ -241,7 +269,7 @@ def add_or_update_relationship(
 
 @tool
 def update_fact_or_preference(item_id: str, new_value: str) -> str:
-    """Update an existing fact or preference using its ID."""
+    """Update fact/preference by ID (from search results [ID: ...])."""
     with get_session() as session:
         fact_rec = session.run("MATCH (f:Fact) WHERE elementId(f) = $id RETURN f.category as category", id=item_id).single()
         if fact_rec:
@@ -268,11 +296,11 @@ def update_fact_or_preference(item_id: str, new_value: str) -> str:
 
 @tool
 def delete_memory(item_id: str) -> str:
-    """Delete a memory (fact, preference, person, or event) by its ID."""
+    """Delete memory by ID (from search results [ID: ...])."""
     with get_session() as session:
         result = session.run("MATCH (n) WHERE elementId(n) = $id DETACH DELETE n RETURN count(n) as deleted", id=item_id).single()
         return "Memory deleted" if result["deleted"] > 0 else "Memory not found"
 
 
 def get_memory_tools():
-    return [retrieve_context, get_user_preferences, check_relationship, add_or_update_person, add_event, add_fact, add_preference, add_or_update_relationship, update_fact_or_preference, delete_memory]
+    return [ retrieve_context, get_user_preferences, check_relationship, add_or_update_person, add_event, add_fact, add_preference, add_or_update_relationship, update_fact_or_preference, delete_memory]
