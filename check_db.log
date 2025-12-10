@@ -1,0 +1,90 @@
+2025-12-10 10:25:38.706 | INFO     | __main__:check_db:17 - ✓ Connected to Neo4j
+2025-12-10 10:25:38.791 | INFO     | __main__:check_db:21 - ✓ Total nodes: 17
+2025-12-10 10:25:38.811 | INFO     | __main__:check_db:25 - ✓ Total relationships: 23
+2025-12-10 10:25:38.815 | INFO     | __main__:check_db:29 - ✓ People (6): Sarah, Tom, Alex, Maria, David, Jordan
+2025-12-10 10:25:38.840 | INFO     | __main__:check_db:33 - ✓ Events (3): AI Hackathon Sep 2025: team with Alex & Jordan won 2nd place image recognition; Maria, Sarah, Tom attended, Sarah's 30th birthday party Jul 2025: attended by Alex, Tom, David; Tom's pasta, board games, Hiking trip Big Sur Aug 2025 with Alex & David...
+2025-12-10 10:25:38.864 | INFO     | __main__:check_db:37 - ✓ Facts (3): Software engineer in San Francisco, 6 yrs exp, UC Berkeley CS grad, from Seattle, Vegetarian 8 yrs, runs 4x/week 5-10km, meditates 20min daily, cat Python, Languages: fluent English, intermediate Spanish (2 yrs), basic Mandarin; reads 15 sci-fi/tech books/yr...
+2025-12-10 10:25:38.888 | INFO     | __main__:check_db:41 - ✓ Preferences (1): Be direct, concise, technical; prefer efficient solutions, code examples; casual tone; challenge assumptions; <3 paras; markdown...
+2025-12-10 10:25:38.888 | INFO     | __main__:check_db:44 - ✓ Database check complete
+2025-12-10 10:26:36.803 | INFO     | __main__:check_db:17 - ✓ Connected to Neo4j
+2025-12-10 10:26:36.879 | INFO     | __main__:check_db:21 - ✓ Total nodes: 17
+2025-12-10 10:26:36.883 | INFO     | __main__:check_db:25 - ✓ Total relationships: 23
+2025-12-10 10:26:36.883 | INFO     | __main__:check_db:27 - 
+=== PEOPLE ===
+2025-12-10 10:26:36.906 | INFO     | __main__:check_db:30 -   Sarah (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:7)
+2025-12-10 10:26:36.906 | INFO     | __main__:check_db:32 -     Best friend from college (7 yrs), product manager in San Jose, married to Tom, dog Max
+2025-12-10 10:26:36.907 | INFO     | __main__:check_db:30 -   Tom (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:8)
+2025-12-10 10:26:36.907 | INFO     | __main__:check_db:32 -     Sarah's husband (known 5 yrs), civil engineer, introverted, reliable
+2025-12-10 10:26:36.907 | INFO     | __main__:check_db:30 -   Alex (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:9)
+2025-12-10 10:26:36.908 | INFO     | __main__:check_db:32 -     Work colleague on ML team, computer vision expert, recently promoted senior engineer
+2025-12-10 10:26:36.908 | INFO     | __main__:check_db:30 -   Maria (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:10)
+2025-12-10 10:26:36.908 | INFO     | __main__:check_db:32 -     Younger sister (5 yrs younger), biology student at UC Berkeley, considering gap year travel
+2025-12-10 10:26:36.908 | INFO     | __main__:check_db:30 -   David (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:11)
+2025-12-10 10:26:36.908 | INFO     | __main__:check_db:32 -     High school friend, reconnected recently, finance in Bay Area, social/networking type
+2025-12-10 10:26:36.909 | INFO     | __main__:check_db:30 -   Jordan (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:12)
+2025-12-10 10:26:36.909 | INFO     | __main__:check_db:32 -     Work colleague
+2025-12-10 10:26:36.909 | INFO     | __main__:check_db:34 - 
+=== EVENTS ===
+2025-12-10 10:26:36.928 | ERROR    | __main__:check_db:65 - ✗ Database error: {code: Neo.ClientError.Statement.SyntaxError} {message: RETURN can only be used at the end of the query. (line 1, column 17 (offset: 16))
+"MATCH (e:Event) RETURN elementId(e) as id, e.description as description, e.date as date OPTIONAL MATCH (p:Person)-[:PARTICIPATED_IN]->(e) RETURN e, collect(DISTINCT p.name) as participants"
+                 ^}
+2025-12-10 10:26:57.551 | INFO     | __main__:check_db:17 - ✓ Connected to Neo4j
+2025-12-10 10:26:57.612 | INFO     | __main__:check_db:21 - ✓ Total nodes: 17
+2025-12-10 10:26:57.616 | INFO     | __main__:check_db:25 - ✓ Total relationships: 23
+2025-12-10 10:26:57.616 | INFO     | __main__:check_db:27 - 
+=== PEOPLE ===
+2025-12-10 10:26:57.620 | INFO     | __main__:check_db:30 -   Sarah (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:7)
+2025-12-10 10:26:57.620 | INFO     | __main__:check_db:32 -     Best friend from college (7 yrs), product manager in San Jose, married to Tom, dog Max
+2025-12-10 10:26:57.620 | INFO     | __main__:check_db:30 -   Tom (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:8)
+2025-12-10 10:26:57.620 | INFO     | __main__:check_db:32 -     Sarah's husband (known 5 yrs), civil engineer, introverted, reliable
+2025-12-10 10:26:57.621 | INFO     | __main__:check_db:30 -   Alex (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:9)
+2025-12-10 10:26:57.621 | INFO     | __main__:check_db:32 -     Work colleague on ML team, computer vision expert, recently promoted senior engineer
+2025-12-10 10:26:57.621 | INFO     | __main__:check_db:30 -   Maria (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:10)
+2025-12-10 10:26:57.621 | INFO     | __main__:check_db:32 -     Younger sister (5 yrs younger), biology student at UC Berkeley, considering gap year travel
+2025-12-10 10:26:57.622 | INFO     | __main__:check_db:30 -   David (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:11)
+2025-12-10 10:26:57.622 | INFO     | __main__:check_db:32 -     High school friend, reconnected recently, finance in Bay Area, social/networking type
+2025-12-10 10:26:57.622 | INFO     | __main__:check_db:30 -   Jordan (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:12)
+2025-12-10 10:26:57.622 | INFO     | __main__:check_db:32 -     Work colleague
+2025-12-10 10:26:57.622 | INFO     | __main__:check_db:34 - 
+=== EVENTS ===
+2025-12-10 10:26:57.677 | INFO     | __main__:check_db:37 -   AI Hackathon Sep 2025: team with Alex & Jordan won 2nd place image recognition; Maria, Sarah, Tom attended (2025-09)
+2025-12-10 10:26:57.677 | INFO     | __main__:check_db:39 -     Participants: Tom, Sarah, Maria, Jordan, Alex
+2025-12-10 10:26:57.678 | INFO     | __main__:check_db:37 -   Sarah's 30th birthday party Jul 2025: attended by Alex, Tom, David; Tom's pasta, board games (2025-07)
+2025-12-10 10:26:57.678 | INFO     | __main__:check_db:39 -     Participants: David, Tom, Alex, Sarah
+2025-12-10 10:26:57.678 | INFO     | __main__:check_db:37 -   Hiking trip Big Sur Aug 2025 with Alex & David (2025-08)
+2025-12-10 10:26:57.679 | INFO     | __main__:check_db:39 -     Participants: David, Alex
+2025-12-10 10:26:57.679 | INFO     | __main__:check_db:41 - 
+=== FACTS ===
+2025-12-10 10:26:57.700 | INFO     | __main__:check_db:44 -   Software engineer in San Francisco, 6 yrs exp, UC Berkeley CS grad, from Seattle (Category: profession, ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:4)
+2025-12-10 10:26:57.700 | INFO     | __main__:check_db:44 -   Vegetarian 8 yrs, runs 4x/week 5-10km, meditates 20min daily, cat Python (Category: lifestyle, ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:5)
+2025-12-10 10:26:57.701 | INFO     | __main__:check_db:44 -   Languages: fluent English, intermediate Spanish (2 yrs), basic Mandarin; reads 15 sci-fi/tech books/yr (Category: personal, ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:6)
+2025-12-10 10:26:57.701 | INFO     | __main__:check_db:46 - 
+=== PREFERENCES ===
+2025-12-10 10:26:57.719 | INFO     | __main__:check_db:49 -   Be direct, concise, technical; prefer efficient solutions, code examples; casual tone; challenge assumptions; <3 paras; markdown (ID: 4:3865a668-85f4-4af3-b3f1-703c55889764:16)
+2025-12-10 10:26:57.719 | INFO     | __main__:check_db:51 - 
+=== RELATIONSHIPS ===
+2025-12-10 10:26:57.748 | INFO     | __main__:check_db:60 -   User -[HAS_FACT]-> None
+2025-12-10 10:26:57.748 | INFO     | __main__:check_db:60 -   User -[HAS_FACT]-> None
+2025-12-10 10:26:57.748 | INFO     | __main__:check_db:60 -   User -[HAS_FACT]-> None
+2025-12-10 10:26:57.748 | INFO     | __main__:check_db:58 -   User -[KNOWS]-> Sarah (sentiment=positive, relation_type=best friend, since=2025-12-10)
+2025-12-10 10:26:57.749 | INFO     | __main__:check_db:58 -   User -[KNOWS]-> Tom (sentiment=positive, relation_type=friend, since=2025-12-10)
+2025-12-10 10:26:57.749 | INFO     | __main__:check_db:58 -   User -[KNOWS]-> Alex (sentiment=positive, relation_type=colleague, since=2025-12-10)
+2025-12-10 10:26:57.750 | INFO     | __main__:check_db:58 -   User -[KNOWS]-> Maria (sentiment=complicated, relation_type=sister, since=2025-12-10)
+2025-12-10 10:26:57.750 | INFO     | __main__:check_db:58 -   User -[KNOWS]-> David (sentiment=neutral, relation_type=friend, since=2025-12-10)
+2025-12-10 10:26:57.750 | INFO     | __main__:check_db:58 -   User -[KNOWS]-> Jordan (sentiment=neutral, relation_type=colleague, since=2025-12-10)
+2025-12-10 10:26:57.750 | INFO     | __main__:check_db:58 -   Sarah -[KNOWS]-> Tom (sentiment=positive, relation_type=married)
+2025-12-10 10:26:57.751 | INFO     | __main__:check_db:58 -   Sarah -[KNOWS]-> Alex (sentiment=positive, relation_type=friends)
+2025-12-10 10:26:57.751 | INFO     | __main__:check_db:58 -   Alex -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.751 | INFO     | __main__:check_db:58 -   Jordan -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.751 | INFO     | __main__:check_db:58 -   Maria -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.752 | INFO     | __main__:check_db:58 -   Sarah -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.752 | INFO     | __main__:check_db:58 -   Tom -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.752 | INFO     | __main__:check_db:58 -   Sarah -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.752 | INFO     | __main__:check_db:58 -   Alex -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.753 | INFO     | __main__:check_db:58 -   Tom -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.753 | INFO     | __main__:check_db:58 -   David -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.753 | INFO     | __main__:check_db:58 -   Alex -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.753 | INFO     | __main__:check_db:58 -   David -[PARTICIPATED_IN]-> None (role=participant)
+2025-12-10 10:26:57.754 | INFO     | __main__:check_db:60 -   User -[HAS_PREFERENCE]-> None
+2025-12-10 10:26:57.755 | INFO     | __main__:check_db:63 - 
+✓ Database check complete

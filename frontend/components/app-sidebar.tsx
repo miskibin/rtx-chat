@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation"
 import Link from "next/link"
+import Image from "next/image"
 import { Sidebar, SidebarContent, SidebarHeader, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Trash2Icon, DatabaseIcon, MessageSquareIcon, SettingsIcon } from "lucide-react"
@@ -22,7 +23,7 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="p-4 flex flex-row items-center justify-between">
-        <h1 className="text-lg font-semibold">Ollama Chat</h1>
+        <Image src="/logo.png" alt="Logo" width={32} height={32} className="w-8 h-8" />
         <ModeToggle />
       </SidebarHeader>
       <SidebarContent>

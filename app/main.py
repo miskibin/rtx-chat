@@ -10,7 +10,7 @@ from neo4j_mcp import kg_initialize_database
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing Neo4j database...")
-    # kg_initialize_database()
+    kg_initialize_database()
     yield
 
 
