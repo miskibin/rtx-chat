@@ -6,20 +6,44 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
 import { SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
-import { SettingsIcon, Trash2, AlertTriangle } from "lucide-react"
-import { useChatStore, ModeData, PromptVariable } from "@/lib/store"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { 
+  SettingsIcon, 
+  Trash2, 
+  AlertTriangle, 
+  PlusIcon, 
+  WrenchIcon,
+  BrainIcon,
+  SlidersHorizontalIcon,
+  SparklesIcon,
+  MessageSquareIcon
+} from "lucide-react"
+import { useChatStore, ModeData, PromptVariable, Model } from "@/lib/store"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 type ToolsByCategory = Record<string, { label: string; tools: { name: string; description: string }[] }>
 
 export default function SettingsPage() {
-  const { setAvailableModes } = useChatStore()
+  const { 
+    setAvailableModes, 
+    models, 
+    setModels,
+    selectedModel,
+    setSelectedModel,
+    selectedMode,
+    setSelectedMode,
+    titleGeneration,
+    setTitleGeneration,
+    autoSave,
+    setAutoSave
+  } = useChatStore()
   const [modes, setModes] = useState<ModeData[]>([])
   const [variables, setVariables] = useState<PromptVariable[]>([])
   const [allTools, setAllTools] = useState<string[]>([])
@@ -27,6 +51,7 @@ export default function SettingsPage() {
   const [editingMode, setEditingMode] = useState<ModeData | null>(null)
   const [editingName, setEditingName] = useState("")
   const [warning, setWarning] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState("general")
 
   const fetchModes = () => {
     fetch(`${API_URL}/modes`).then(r => r.json()).then(d => {
@@ -38,7 +63,16 @@ export default function SettingsPage() {
     })
   }
 
-  useEffect(() => { fetchModes() }, [])
+  const fetchModels = () => {
+    fetch(`${API_URL}/models`).then(r => r.json()).then(d => {
+      setModels(d.models || [])
+    })
+  }
+
+  useEffect(() => { 
+    fetchModes() 
+    fetchModels()
+  }, [])
 
   const saveMode = async () => {
     if (!editingMode) return
@@ -64,6 +98,18 @@ export default function SettingsPage() {
     setEditingName(m.name)
   }
 
+  const startNewMode = () => {
+    setEditingMode({
+      name: "",
+      prompt: "",
+      enabled_tools: [],
+      max_memories: 5,
+      max_tool_runs: 10,
+      is_template: false
+    })
+    setEditingName("")
+  }
+
   const insertVariable = (v: string) => {
     if (!editingMode) return
     setEditingMode({ ...editingMode, prompt: editingMode.prompt + v })
@@ -84,134 +130,359 @@ export default function SettingsPage() {
     setEditingMode({ ...editingMode, enabled_tools: Array.from(tools) })
   }
 
+  const toolCapableModels = models.filter(m => m.supports_tools)
+
   return (
     <SidebarInset className="flex flex-col h-screen bg-background">
       <header className="flex items-center border-b px-6 py-4 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <SidebarTrigger />
         <SettingsIcon className="size-5 text-muted-foreground ml-2" />
-        <h1 className="text-lg font-semibold ml-2">Modes</h1>
+        <h1 className="text-lg font-semibold ml-2">Settings</h1>
       </header>
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="mx-auto max-w-4xl space-y-4">
-          
-          {warning && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 text-yellow-600 text-sm">
-              <AlertTriangle className="size-4" />
-              {warning}
-            </div>
-          )}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+        <div className="border-b px-6">
+          <TabsList className="h-11 mt-2">
+            <TabsTrigger value="general" className="gap-2">
+              <SlidersHorizontalIcon className="size-4" />
+              General
+            </TabsTrigger>
+            <TabsTrigger value="modes" className="gap-2">
+              <SparklesIcon className="size-4" />
+              Modes
+              <Badge variant="secondary" className="ml-1 rounded text-[10px] px-1.5">{modes.length}</Badge>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
-          <div className="flex flex-wrap gap-2">
-            {modes.map(m => (
-              <div 
-                key={m.name} 
-                onClick={() => startEdit(m)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer hover:bg-accent transition-colors ${editingMode?.name === m.name ? "ring-2 ring-primary bg-accent" : ""}`}
-              >
-                <span className="font-medium">{m.name}</span>
-                {m.is_template && <Badge variant="secondary" className="text-xs">template</Badge>}
-                <span className="text-xs text-muted-foreground">{m.max_memories}m · {m.max_tool_runs}t</span>
-                {!m.is_template && (
-                  <Button variant="ghost" size="icon" className="size-5" onClick={(e) => { e.stopPropagation(); deleteMode(m.name) }}>
-                    <Trash2 className="size-3" />
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {editingMode && (
+        {/* General Tab */}
+        <TabsContent value="general" className="flex-1 overflow-auto mt-0 p-6">
+          <div className="mx-auto max-w-2xl space-y-6">
+            
+            {/* Defaults Section */}
             <Card>
-              <CardHeader className="pb-4">
-                <div className="flex items-center gap-3">
-                  <Label>Name</Label>
-                  <Input value={editingName} onChange={e => setEditingName(e.target.value)} className="max-w-xs" placeholder="Mode name (change to save as new)" />
-                  {editingName !== editingMode.name && <Badge>Save as new</Badge>}
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <SlidersHorizontalIcon className="size-5 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">Defaults</CardTitle>
+                    <CardDescription>Default model and mode for new conversations</CardDescription>
+                  </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>System Prompt</Label>
-                    <div className="flex gap-1 flex-wrap">
-                      {variables.map(v => (
-                        <Button key={v.name} variant="outline" size="sm" onClick={() => insertVariable(v.name)} title={v.desc} className="text-xs h-7">
-                          {v.name}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                  <Textarea value={editingMode.prompt} onChange={e => setEditingMode({ ...editingMode, prompt: e.target.value })} rows={8} className="font-mono text-sm" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-6">
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>Max Memories</Label>
-                      <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">{editingMode.max_memories}</span>
-                    </div>
-                    <Slider value={[editingMode.max_memories]} min={1} max={20} onValueChange={([v]) => setEditingMode({ ...editingMode, max_memories: v })} />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>Max Tool Runs</Label>
-                      <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">{editingMode.max_tool_runs}</span>
-                    </div>
-                    <Slider value={[editingMode.max_tool_runs]} min={1} max={50} onValueChange={([v]) => setEditingMode({ ...editingMode, max_tool_runs: v })} />
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label>Tools ({editingMode.enabled_tools.length}/{allTools.length})</Label>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setEditingMode({ ...editingMode, enabled_tools: allTools })}>All</Button>
-                      <Button variant="outline" size="sm" onClick={() => setEditingMode({ ...editingMode, enabled_tools: [] })}>None</Button>
-                    </div>
-                  </div>
-                  
-                  {Object.entries(toolsByCategory).map(([cat, data]) => {
-                    const catTools = data.tools.map(t => t.name)
-                    const enabledCount = catTools.filter(t => editingMode.enabled_tools.includes(t)).length
-                    return (
-                      <div key={cat} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-muted-foreground">{data.label} ({enabledCount}/{catTools.length})</span>
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => toggleCategory(catTools, true)}>All</Button>
-                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => toggleCategory(catTools, false)}>None</Button>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {data.tools.map(tool => (
-                            <div 
-                              key={tool.name} 
-                              onClick={() => toggleTool(tool.name)}
-                              title={tool.description}
-                              className={`px-2 py-1 text-xs rounded cursor-pointer border transition-colors ${editingMode.enabled_tools.includes(tool.name) ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-accent"}`}
-                            >
-                              {tool.name}
+                    <Label>Default Model</Label>
+                    <Select value={selectedModel} onValueChange={setSelectedModel}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {toolCapableModels.map(m => (
+                          <SelectItem key={m.name} value={m.name}>
+                            <div className="flex items-center gap-2">
+                              <span>{m.name}</span>
+                              {m.supports_thinking && <BrainIcon className="size-3 text-muted-foreground" />}
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="ghost" onClick={() => setEditingMode(null)}>Cancel</Button>
-                  <Button onClick={saveMode}>{editingName !== editingMode.name ? "Save as New" : "Save"}</Button>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {toolCapableModels.length} model(s) with tool support
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Default Mode</Label>
+                    <Select value={selectedMode} onValueChange={setSelectedMode}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {modes.map(m => (
+                          <SelectItem key={m.name} value={m.name}>
+                            <div className="flex items-center gap-2">
+                              <span>{m.name}</span>
+                              {m.is_template && <Badge variant="outline" className="text-[10px]">template</Badge>}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Configure modes in the Modes tab
+                    </p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-          )}
 
-        </div>
-      </div>
+            {/* Conversation Section */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-lg bg-amber-500/10">
+                    <MessageSquareIcon className="size-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">Conversations</CardTitle>
+                    <CardDescription>Control how conversations are managed</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Auto-save conversations</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Automatically save conversations as you chat
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={autoSave} 
+                    onCheckedChange={setAutoSave}
+                  />
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>AI-generated titles</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Use the LLM to generate conversation titles
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={titleGeneration} 
+                    onCheckedChange={setTitleGeneration}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+          </div>
+        </TabsContent>
+
+        {/* Modes Tab */}
+        <TabsContent value="modes" className="flex-1 overflow-auto mt-0">
+          <div className="flex h-full">
+            {/* Mode List - Left Panel */}
+            <div className="w-80 border-r p-4 flex flex-col gap-3 overflow-auto bg-muted/30">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Modes</h3>
+                <Button size="sm" variant="outline" onClick={startNewMode} className="gap-1">
+                  <PlusIcon className="size-4" />
+                  New
+                </Button>
+              </div>
+              
+              {warning && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 text-yellow-600 text-sm">
+                  <AlertTriangle className="size-4 shrink-0" />
+                  <span className="text-xs">{warning}</span>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {modes.map(m => (
+                  <div 
+                    key={m.name} 
+                    onClick={() => startEdit(m)}
+                    className={`p-3 rounded-lg border cursor-pointer transition-all hover:border-primary/50 hover:bg-accent/50 ${editingMode?.name === m.name ? "ring-2 ring-primary bg-accent border-primary" : "bg-card"}`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-sm">{m.name}</span>
+                      {m.is_template && <Badge variant="secondary" className="text-[10px]">template</Badge>}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground/80">
+                      <span className="flex items-center gap-1">
+                        <BrainIcon className="size-3" />
+                        <span className="text-foreground/70">{m.max_memories}</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <WrenchIcon className="size-3" />
+                        <span className="text-foreground/70">{m.enabled_tools.length}/{allTools.length}</span>
+                      </span>
+                    </div>
+                    {!m.is_template && (
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="size-6 absolute top-2 right-2 opacity-0 group-hover:opacity-100" 
+                        onClick={(e) => { e.stopPropagation(); deleteMode(m.name) }}
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Mode Editor - Right Panel */}
+            <div className="flex-1 p-6 overflow-auto">
+              {editingMode ? (
+                <div className="max-w-3xl space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Input 
+                        value={editingName} 
+                        onChange={e => setEditingName(e.target.value)} 
+                        className="max-w-xs text-lg font-semibold h-10" 
+                        placeholder="Mode name" 
+                      />
+                      {editingName !== editingMode.name && editingMode.name && (
+                        <Badge variant="default">Save as new</Badge>
+                      )}
+                      {editingMode.is_template && (
+                        <Badge variant="secondary">template</Badge>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      {!editingMode.is_template && editingMode.name && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => { deleteMode(editingMode.name); setEditingMode(null) }}
+                        >
+                          <Trash2 className="size-4 mr-1" />
+                          Delete
+                        </Button>
+                      )}
+                      <Button variant="ghost" onClick={() => setEditingMode(null)}>Cancel</Button>
+                      <Button onClick={saveMode} disabled={!editingName.trim()}>
+                        {editingName !== editingMode.name && editingMode.name ? "Save as New" : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">System Prompt</CardTitle>
+                      <CardDescription>
+                        Available variables:
+                        <span className="flex gap-1 mt-2 flex-wrap">
+                          {variables.map(v => (
+                            <Button 
+                              key={v.name} 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => insertVariable(v.name)} 
+                              title={v.desc} 
+                              className="text-xs h-6 px-2"
+                            >
+                              {v.name}
+                            </Button>
+                          ))}
+                        </span>
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Textarea 
+                        value={editingMode.prompt} 
+                        onChange={e => setEditingMode({ ...editingMode, prompt: e.target.value })} 
+                        rows={10} 
+                        className="font-mono text-sm" 
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">Limits</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm">Max Memories</Label>
+                            <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">{editingMode.max_memories}</span>
+                          </div>
+                          <Slider 
+                            value={[editingMode.max_memories]} 
+                            min={1} 
+                            max={20} 
+                            onValueChange={([v]) => setEditingMode({ ...editingMode, max_memories: v })} 
+                          />
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm">Max Tool Runs</Label>
+                            <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">{editingMode.max_tool_runs}</span>
+                          </div>
+                          <Slider 
+                            value={[editingMode.max_tool_runs]} 
+                            min={1} 
+                            max={50} 
+                            onValueChange={([v]) => setEditingMode({ ...editingMode, max_tool_runs: v })} 
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="text-sm">Tools</CardTitle>
+                          <CardDescription>{editingMode.enabled_tools.length} of {allTools.length} enabled</CardDescription>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => setEditingMode({ ...editingMode, enabled_tools: allTools })}>Enable All</Button>
+                          <Button variant="outline" size="sm" onClick={() => setEditingMode({ ...editingMode, enabled_tools: [] })}>Disable All</Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {Object.entries(toolsByCategory).map(([cat, data]) => {
+                        const catTools = data.tools.map(t => t.name)
+                        const enabledCount = catTools.filter(t => editingMode.enabled_tools.includes(t)).length
+                        return (
+                          <div key={cat} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">{data.label} <span className="text-muted-foreground">({enabledCount}/{catTools.length})</span></span>
+                              <div className="flex gap-1">
+                                <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => toggleCategory(catTools, true)}>All</Button>
+                                <Button variant="outline" size="sm" className="h-6 text-xs px-2" onClick={() => toggleCategory(catTools, false)}>None</Button>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {data.tools.map(tool => (
+                                <div 
+                                  key={tool.name} 
+                                  onClick={() => toggleTool(tool.name)}
+                                  title={tool.description}
+                                  className={`px-2.5 py-1 text-xs rounded-md cursor-pointer border transition-colors ${editingMode.enabled_tools.includes(tool.name) ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-foreground hover:bg-accent border-border"}`}
+                                >
+                                  {tool.name}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </CardContent>
+                  </Card>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                  <SparklesIcon className="size-12 mb-4 opacity-30" />
+                  <p className="text-lg font-medium">Select a mode to edit</p>
+                  <p className="text-sm">Or create a new one to get started</p>
+                  <Button variant="outline" className="mt-4 gap-2" onClick={startNewMode}>
+                    <PlusIcon className="size-4" />
+                    Create New Mode
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </SidebarInset>
   )
 }

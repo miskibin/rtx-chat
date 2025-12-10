@@ -163,6 +163,8 @@ export default function Home() {
     currentConversationId,
     setCurrentConversationId,
     setConversations,
+    titleGeneration,
+    autoSave,
   } = useChatStore();
   const abortRef = useRef<AbortController | null>(null);
   const thinkingIdRef = useRef<string | null>(null);
@@ -193,6 +195,12 @@ export default function Home() {
   // Generate title using LLM based on first user + assistant exchange
   const generateTitle = async (userMsg: string, assistantMsg: string): Promise<string> => {
     if (!userMsg) return "New chat";
+    
+    // If title generation is disabled, use simple truncation
+    if (!titleGeneration) {
+      return userMsg.slice(0, 30) + (userMsg.length > 30 ? "..." : "");
+    }
+    
     try {
       const res = await fetch(`${API_URL}/conversations/generate-title`, {
         method: "POST",
@@ -259,6 +267,9 @@ export default function Home() {
   // Debounced auto-save when messages change
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
+    // Skip if auto-save is disabled
+    if (!autoSave) return;
+    
     // Only save if we have at least one assistant message with content
     const hasContent = messages.some(m => m.role === "assistant" && m.content);
     if (!hasContent) return;
@@ -275,7 +286,7 @@ export default function Home() {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [messages, currentConversationId, saveConversation]);
+  }, [messages, currentConversationId, saveConversation, autoSave]);
 
   const sendMessage = async (
     message: string,

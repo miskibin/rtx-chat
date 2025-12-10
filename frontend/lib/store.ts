@@ -30,6 +30,9 @@ type ChatStore = {
   // Conversation management
   conversations: ConversationMeta[]
   currentConversationId: string | null
+  // Settings
+  titleGeneration: boolean
+  autoSave: boolean
   setMessages: (fn: (msgs: MessageType[]) => MessageType[]) => void
   addMessage: (msg: MessageType) => void
   setInput: (input: string) => void
@@ -46,6 +49,9 @@ type ChatStore = {
   setCurrentConversationId: (id: string | null) => void
   loadConversation: (id: string, messages: MessageType[], mode?: string, model?: string) => void
   startNewConversation: () => void
+  // Settings actions
+  setTitleGeneration: (enabled: boolean) => void
+  setAutoSave: (enabled: boolean) => void
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -64,6 +70,8 @@ export const useChatStore = create<ChatStore>()(
       allTools: [],
       conversations: [],
       currentConversationId: null,
+      titleGeneration: true,
+      autoSave: true,
       setMessages: (fn) => set((state) => ({ messages: fn(state.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setInput: (input) => set({ input }),
@@ -84,6 +92,8 @@ export const useChatStore = create<ChatStore>()(
         ...(model && { selectedModel: model }),
       }),
       startNewConversation: () => set({ messages: [], currentConversationId: null }),
+      setTitleGeneration: (titleGeneration) => set({ titleGeneration }),
+      setAutoSave: (autoSave) => set({ autoSave }),
     }),
     {
       name: "chat-storage",
@@ -92,6 +102,8 @@ export const useChatStore = create<ChatStore>()(
         selectedModel: state.selectedModel,
         selectedMode: state.selectedMode,
         currentConversationId: state.currentConversationId,
+        titleGeneration: state.titleGeneration,
+        autoSave: state.autoSave,
       }),
     }
   )
