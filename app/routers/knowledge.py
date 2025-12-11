@@ -1,7 +1,9 @@
-"""Knowledge base router for uploading and managing mode-specific documents."""
+"""Knowledge base router for uploading and managing mode-specific documents.
 
-import os
-import shutil
+Supports: .txt, .md, .pdf files only.
+"""
+
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -10,18 +12,9 @@ from pydantic import BaseModel
 from loguru import logger
 
 from app.graph_models import KnowledgeDocument, KnowledgeChunk, Mode
-from app.tools.knowledge import (
-    process_document,
-    KNOWLEDGE_FILES_DIR,
-)
+from app.tools.knowledge import process_document, KNOWLEDGE_FILES_DIR, SUPPORTED_EXTENSIONS
 
 router = APIRouter(prefix="/modes/{mode_name}/knowledge", tags=["knowledge"])
-
-
-class UrlUploadRequest(BaseModel):
-    url: str
-    enrich_with_llm: bool = True
-    enrichment_model: str = "qwen3:4b"
 
 
 class ProcessingStatus(BaseModel):
@@ -40,18 +33,13 @@ def get_file_type(filename: str) -> str:
     ext = filename.lower().split(".")[-1] if "." in filename else ""
     if ext == "pdf":
         return "pdf"
-    elif ext in ("png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff"):
-        return "image"
-    elif ext in ("txt", "md", "markdown", "rst", "json", "yaml", "yml", "csv"):
-        return "text"
-    return "text"  # Default to text
+    return "text"
 
 
 async def process_file_async(
     mode_name: str,
     file_path: Path,
     filename: str,
-    doc_type: str,
     enrich_with_llm: bool,
     enrichment_model: str,
     task_id: str
@@ -60,16 +48,12 @@ async def process_file_async(
     try:
         _processing_status[task_id] = ProcessingStatus(
             status="processing",
-            message=f"Processing {filename} with unstructured..."
+            message=f"Processing {filename}..."
         )
         
-        # Process directly with unstructured - it handles all file types
-        # Pass empty content since we'll use file_path with unstructured
         doc = await process_document(
             mode_name=mode_name,
-            content="",  # Not needed when file_path is provided
             filename=filename,
-            doc_type=doc_type,
             file_path=str(file_path),
             enrich_with_llm=enrich_with_llm,
             enrichment_model=enrichment_model
@@ -90,53 +74,6 @@ async def process_file_async(
         )
 
 
-async def process_url_async(
-    mode_name: str,
-    url: str,
-    enrich_with_llm: bool,
-    enrichment_model: str,
-    task_id: str
-):
-    """Background task to process URL using unstructured."""
-    try:
-        _processing_status[task_id] = ProcessingStatus(
-            status="processing",
-            message=f"Processing URL with unstructured..."
-        )
-        
-        # Extract filename from URL
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        filename = parsed.netloc + parsed.path.replace("/", "_")[:50]
-        if not filename.endswith(".html"):
-            filename += ".html"
-        
-        # Process with unstructured - it handles URL fetching and HTML parsing
-        doc = await process_document(
-            mode_name=mode_name,
-            content="",  # Not needed - unstructured fetches from source_url
-            filename=filename,
-            doc_type="url",
-            source_url=url,
-            enrich_with_llm=enrich_with_llm,
-            enrichment_model=enrichment_model
-        )
-        
-        _processing_status[task_id] = ProcessingStatus(
-            status="completed",
-            document_id=doc.id,
-            message=f"Successfully processed URL",
-            chunk_count=doc.chunk_count
-        )
-        
-    except Exception as e:
-        logger.error(f"Error processing URL {url}: {e}")
-        _processing_status[task_id] = ProcessingStatus(
-            status="error",
-            message=str(e)
-        )
-
-
 @router.post("/upload")
 async def upload_file(
     mode_name: str,
@@ -145,23 +82,31 @@ async def upload_file(
     enrich_with_llm: bool = Form(True),
     enrichment_model: str = Form("qwen3:4b")
 ):
-    """Upload a file to the mode's knowledge base."""
+    """Upload a file to the mode's knowledge base.
+    
+    Supported file types: .txt, .md, .pdf
+    """
     # Verify mode exists
     mode = Mode.get(mode_name)
     if not mode:
         raise HTTPException(status_code=404, detail=f"Mode '{mode_name}' not found")
     
+    # Check file extension
+    filename = file.filename or "unknown.txt"
+    ext = Path(filename).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file type: {ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}"
+        )
+    
     # Create storage directory
     mode_dir = KNOWLEDGE_FILES_DIR / mode_name
     mode_dir.mkdir(parents=True, exist_ok=True)
     
-    # Determine file type
-    doc_type = get_file_type(file.filename or "unknown.txt")
-    
     # Generate unique filename
-    import uuid
     file_id = str(uuid.uuid4())[:8]
-    safe_filename = f"{file_id}_{file.filename}"
+    safe_filename = f"{file_id}_{filename}"
     file_path = mode_dir / safe_filename
     
     # Save file
@@ -181,47 +126,13 @@ async def upload_file(
         process_file_async,
         mode_name,
         file_path,
-        file.filename or "unknown",
-        doc_type,
+        filename,
         enrich_with_llm,
         enrichment_model,
         task_id
     )
     
-    return {"task_id": task_id, "status": "queued", "filename": file.filename}
-
-
-@router.post("/url")
-async def upload_url(
-    mode_name: str,
-    request: UrlUploadRequest,
-    background_tasks: BackgroundTasks
-):
-    """Add a URL to the mode's knowledge base."""
-    # Verify mode exists
-    mode = Mode.get(mode_name)
-    if not mode:
-        raise HTTPException(status_code=404, detail=f"Mode '{mode_name}' not found")
-    
-    # Generate task ID for tracking
-    import uuid
-    task_id = str(uuid.uuid4())
-    _processing_status[task_id] = ProcessingStatus(
-        status="queued",
-        message="URL queued for processing..."
-    )
-    
-    # Process in background
-    background_tasks.add_task(
-        process_url_async,
-        mode_name,
-        request.url,
-        request.enrich_with_llm,
-        request.enrichment_model,
-        task_id
-    )
-    
-    return {"task_id": task_id, "status": "queued", "url": request.url}
+    return {"task_id": task_id, "status": "queued", "filename": filename}
 
 
 @router.get("/status/{task_id}")
@@ -236,7 +147,6 @@ async def get_processing_status(mode_name: str, task_id: str):
 @router.get("")
 async def list_documents(mode_name: str):
     """List all documents in the mode's knowledge base."""
-    # Verify mode exists
     mode = Mode.get(mode_name)
     if not mode:
         raise HTTPException(status_code=404, detail=f"Mode '{mode_name}' not found")
@@ -248,7 +158,6 @@ async def list_documents(mode_name: str):
                 "id": doc.id,
                 "filename": doc.filename,
                 "doc_type": doc.doc_type,
-                "source_url": doc.source_url,
                 "chunk_count": doc.chunk_count,
                 "created_at": doc.created_at
             }
@@ -271,14 +180,13 @@ async def get_document(mode_name: str, doc_id: str):
             "id": doc.id,
             "filename": doc.filename,
             "doc_type": doc.doc_type,
-            "source_url": doc.source_url,
             "chunk_count": doc.chunk_count,
             "created_at": doc.created_at
         },
         "chunks": [
             {
                 "index": c.chunk_index,
-                "content": c.content[:200] + "..." if len(c.content) > 200 else c.content,
+                "content": c.content,
                 "summary": c.summary,
                 "topics": c.topics
             }

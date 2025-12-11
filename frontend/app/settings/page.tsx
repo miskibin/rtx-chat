@@ -17,12 +17,9 @@ import {
   SparklesIcon,
   MessageSquareIcon,
   UploadIcon,
-  LinkIcon,
   FileTextIcon,
   Loader2Icon,
   FileIcon,
-  GlobeIcon,
-  ImageIcon,
   EyeIcon,
   HashIcon
 } from "lucide-react"
@@ -68,7 +65,6 @@ export default function SettingsPage() {
     chunk_count: number
     created_at: string
   }>>([])
-  const [urlInput, setUrlInput] = useState("")
   const [isUploading, setIsUploading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const [enrichWithLlm, setEnrichWithLlm] = useState(true)
@@ -198,34 +194,6 @@ export default function SettingsPage() {
       }
     } catch (error) {
       setUploadStatus("Upload failed")
-      setIsUploading(false)
-    }
-  }
-
-  const uploadUrl = async () => {
-    if (!editingMode?.name || !urlInput.trim()) return
-    setIsUploading(true)
-    setUploadStatus("Fetching URL...")
-    
-    try {
-      const res = await fetch(`${API_URL}/modes/${editingMode.name}/knowledge/url`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: urlInput, enrich_with_llm: enrichWithLlm, enrichment_model: enrichmentModel })
-      })
-      
-      if (res.ok) {
-        const data = await res.json()
-        setUploadStatus("Processing...")
-        setUrlInput("")
-        // Poll for status
-        pollTaskStatus(data.task_id)
-      } else {
-        setUploadStatus("Failed to process URL")
-        setIsUploading(false)
-      }
-    } catch (error) {
-      setUploadStatus("Failed to process URL")
       setIsUploading(false)
     }
   }
@@ -668,36 +636,14 @@ export default function SettingsPage() {
                             onChange={handleFileSelect}
                             className="hidden" 
                             id="file-upload"
-                            accept=".pdf,.txt,.md,.json,.png,.jpg,.jpeg,.webp"
+                            accept=".pdf,.txt,.md"
                             disabled={isUploading}
                           />
                           <label htmlFor="file-upload" className="cursor-pointer">
                             <UploadIcon className="size-8 mx-auto mb-2 text-muted-foreground" />
                             <p className="text-sm font-medium">Drop files here or click to upload</p>
-                            <p className="text-xs text-muted-foreground mt-1">PDF, images, text files</p>
+                            <p className="text-xs text-muted-foreground mt-1">Supported: .txt, .md, .pdf</p>
                           </label>
-                        </div>
-
-                        {/* URL Input */}
-                        <div className="flex gap-2">
-                          <div className="flex-1 relative">
-                            <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                            <Input 
-                              value={urlInput}
-                              onChange={(e) => setUrlInput(e.target.value)}
-                              placeholder="https://example.com/page"
-                              className="pl-9"
-                              disabled={isUploading}
-                              onKeyDown={(e) => e.key === "Enter" && uploadUrl()}
-                            />
-                          </div>
-                          <Button 
-                            onClick={uploadUrl} 
-                            disabled={!urlInput.trim() || isUploading}
-                            variant="outline"
-                          >
-                            Add URL
-                          </Button>
                         </div>
 
                         {/* Documents List */}
