@@ -21,6 +21,7 @@ EXTERNAL_MODELS = [
     ("grok-4-1-fast-non-reasoning", 128000, "400B", "grok"),
     ("grok-4-1-fast-reasoning", 128000, "400B", "grok"),
     ("gemini-2.5-pro", 2000000, "Unknown", "gemini"),
+    ("gemini-2.5-flash", 2000000, "Unknown", "gemini"),
     ("deepseek-chat", 128000, "685B", "deepseek"),
 ]
 
