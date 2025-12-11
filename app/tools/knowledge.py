@@ -136,10 +136,9 @@ async def fetch_url_content(url: str) -> str:
 
 async def enrich_chunk_with_llm(content: str, model: str = "qwen3:4b") -> dict:
     """Use LLM to generate summary and extract topics from a chunk."""
-    try:
-        import ollama
-        
-        prompt = f"""Analyze this text and return JSON with exactly this format:
+    from app.routers.models import get_provider_config
+    
+    prompt = f"""Analyze this text and return JSON with exactly this format:
 {{"summary": "1-2 sentence summary of the main points", "topics": ["topic1", "topic2", "topic3"]}}
 
 Text:
@@ -147,13 +146,31 @@ Text:
 
 Return ONLY valid JSON, no other text."""
 
-        response = ollama.chat(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            format="json"
-        )
+    try:
+        provider_config = get_provider_config(model)
         
-        result_text = response.message.content.strip()
+        if provider_config:
+            # External model (Gemini, Grok, DeepSeek) - use OpenAI-compatible API
+            from openai import OpenAI
+            api_key, base_url = provider_config
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            result_text = response.choices[0].message.content.strip()
+        else:
+            # Local Ollama model
+            import ollama
+            response = ollama.chat(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                format="json"
+            )
+            result_text = response.message.content.strip()
+        
         # Try to parse JSON from response
         try:
             result = json.loads(result_text)
