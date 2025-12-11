@@ -1,4 +1,8 @@
-"""Knowledge base tools for mode-specific document storage and retrieval."""
+"""Knowledge base tools for mode-specific document storage and retrieval.
+
+Uses the `unstructured` library for document partitioning, cleaning, and chunking.
+See: https://docs.unstructured.io/open-source/core-functionality/overview
+"""
 
 import asyncio
 import json
@@ -50,85 +54,131 @@ def ensure_vector_index():
             logger.debug(f"Vector index may already exist: {e}")
 
 
-def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Split text into chunks with overlap, trying to split on sentence boundaries."""
-    if not text or len(text) <= chunk_size:
-        return [text] if text else []
+def partition_and_chunk_file(file_path: Path, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """
+    Partition a file using unstructured and chunk it with the by_title strategy.
     
-    # Normalize whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
+    Uses unstructured's semantic partitioning to understand document structure,
+    then chunks respecting section boundaries.
     
-    chunks = []
-    start = 0
+    See: https://docs.unstructured.io/open-source/core-functionality/chunking
+    """
+    from unstructured.partition.auto import partition
+    from unstructured.chunking.title import chunk_by_title
+    from unstructured.cleaners.core import clean, replace_unicode_quotes, group_broken_paragraphs
     
-    while start < len(text):
-        end = start + chunk_size
-        
-        if end >= len(text):
-            chunks.append(text[start:].strip())
-            break
-        
-        # Try to find a sentence boundary near the end
-        search_start = max(start + chunk_size - 100, start)
-        search_end = min(start + chunk_size + 50, len(text))
-        search_region = text[search_start:search_end]
-        
-        # Look for sentence endings
-        best_break = None
-        for pattern in ['. ', '? ', '! ', '\n']:
-            idx = search_region.rfind(pattern)
-            if idx != -1:
-                best_break = search_start + idx + len(pattern)
-                break
-        
-        if best_break and best_break > start:
-            end = best_break
-        
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        
-        start = end - overlap
+    # Partition the document into semantic elements
+    elements = partition(str(file_path))
+    logger.info(f"Partitioned {file_path.name} into {len(elements)} elements")
     
-    return chunks
+    # Apply cleaning to each element
+    for element in elements:
+        element.apply(replace_unicode_quotes)
+        element.apply(lambda text: clean(text, extra_whitespace=True, dashes=True))
+    
+    # Chunk using by_title strategy - respects section boundaries
+    chunks = chunk_by_title(
+        elements,
+        max_characters=chunk_size,
+        new_after_n_chars=chunk_size - 100,  # soft max
+        overlap=overlap,
+        combine_text_under_n_chars=200,  # combine small sections
+    )
+    
+    # Extract text from chunks
+    chunk_texts = []
+    for chunk in chunks:
+        text = chunk.text.strip()
+        if text:
+            chunk_texts.append(text)
+    
+    logger.info(f"Created {len(chunk_texts)} chunks from {file_path.name}")
+    return chunk_texts
 
 
-async def extract_text_from_pdf(file_path: Path) -> str:
-    """Extract text from PDF using docling."""
-    try:
-        from docling.document_converter import DocumentConverter
-        
-        converter = DocumentConverter()
-        result = converter.convert(str(file_path))
-        return result.document.export_to_markdown()
-    except ImportError:
-        logger.warning("docling not installed, falling back to basic PDF extraction")
-        try:
-            import pypdf
-            reader = pypdf.PdfReader(str(file_path))
-            text = ""
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
-            return text
-        except ImportError:
-            raise ImportError("Neither docling nor pypdf is installed for PDF processing")
+def partition_and_chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """
+    Partition text content using unstructured and chunk it.
+    
+    For plain text or HTML content that doesn't come from a file.
+    """
+    from unstructured.partition.text import partition_text
+    from unstructured.partition.html import partition_html
+    from unstructured.chunking.title import chunk_by_title
+    from unstructured.cleaners.core import clean, replace_unicode_quotes, group_broken_paragraphs
+    
+    # Detect if it's HTML
+    if text.strip().startswith('<') and ('</html>' in text.lower() or '</body>' in text.lower() or '</div>' in text.lower()):
+        elements = partition_html(text=text)
+    else:
+        # Apply group_broken_paragraphs for plain text before partitioning
+        text = group_broken_paragraphs(text)
+        elements = partition_text(text=text)
+    
+    logger.info(f"Partitioned text into {len(elements)} elements")
+    
+    # Apply cleaning to each element
+    for element in elements:
+        element.apply(replace_unicode_quotes)
+        element.apply(lambda t: clean(t, extra_whitespace=True, dashes=True))
+    
+    # Chunk using by_title strategy
+    chunks = chunk_by_title(
+        elements,
+        max_characters=chunk_size,
+        new_after_n_chars=chunk_size - 100,
+        overlap=overlap,
+        combine_text_under_n_chars=200,
+    )
+    
+    # Extract text from chunks
+    chunk_texts = []
+    for chunk in chunks:
+        text = chunk.text.strip()
+        if text:
+            chunk_texts.append(text)
+    
+    logger.info(f"Created {len(chunk_texts)} chunks from text")
+    return chunk_texts
 
 
-async def extract_text_from_image(file_path: Path) -> str:
-    """Extract text from image using docling OCR."""
-    try:
-        from docling.document_converter import DocumentConverter
-        
-        converter = DocumentConverter()
-        result = converter.convert(str(file_path))
-        return result.document.export_to_markdown()
-    except ImportError:
-        logger.warning("docling not installed for OCR")
-        raise ImportError("docling is required for image OCR")
+def partition_and_chunk_url(url: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """
+    Partition content from a URL using unstructured and chunk it.
+    """
+    from unstructured.partition.html import partition_html
+    from unstructured.chunking.title import chunk_by_title
+    from unstructured.cleaners.core import clean, replace_unicode_quotes
+    
+    # Partition directly from URL
+    elements = partition_html(url=url)
+    logger.info(f"Partitioned URL into {len(elements)} elements")
+    
+    # Apply cleaning
+    for element in elements:
+        element.apply(replace_unicode_quotes)
+        element.apply(lambda t: clean(t, extra_whitespace=True, dashes=True))
+    
+    # Chunk
+    chunks = chunk_by_title(
+        elements,
+        max_characters=chunk_size,
+        new_after_n_chars=chunk_size - 100,
+        overlap=overlap,
+        combine_text_under_n_chars=200,
+    )
+    
+    chunk_texts = [chunk.text.strip() for chunk in chunks if chunk.text.strip()]
+    logger.info(f"Created {len(chunk_texts)} chunks from URL")
+    return chunk_texts
 
 
 async def fetch_url_content(url: str) -> str:
-    """Fetch content from URL using crawl4ai for JS rendering."""
+    """Fetch content from URL using crawl4ai for JS rendering.
+    
+    Note: This is kept for compatibility but partition_and_chunk_url is preferred
+    as it uses unstructured's built-in URL fetching with proper HTML parsing.
+    """
     from app.tools.web import read_website_js
     result = await read_website_js.ainvoke({"url": url})
     return result
@@ -204,16 +254,44 @@ async def process_document(
     enrich_with_llm: bool = True,
     enrichment_model: str = "qwen3:4b"
 ) -> KnowledgeDocument:
-    """Process a document: chunk it, optionally enrich with LLM, and store in Neo4j."""
+    """Process a document using unstructured for partitioning and chunking.
+    
+    Uses unstructured's semantic partitioning to understand document structure,
+    then chunks using the by_title strategy which respects section boundaries.
+    
+    See: https://docs.unstructured.io/open-source/core-functionality/chunking
+    """
     
     ensure_vector_index()
     
     doc_id = str(uuid.uuid4())
     created_at = datetime.now().isoformat()
     
-    # Chunk the content
-    chunks = chunk_text(content)
-    logger.info(f"Split document into {len(chunks)} chunks")
+    # Use unstructured for partitioning and chunking based on source type
+    try:
+        if file_path and Path(file_path).exists():
+            # File-based: use unstructured's auto partition
+            chunks = partition_and_chunk_file(Path(file_path))
+        elif source_url and doc_type == "url":
+            # URL: use unstructured's HTML partition with URL fetching
+            try:
+                chunks = partition_and_chunk_url(source_url)
+            except Exception as e:
+                logger.warning(f"unstructured URL fetch failed, falling back to crawl4ai: {e}")
+                # Fallback to crawl4ai for JS-heavy sites
+                content = await fetch_url_content(source_url)
+                chunks = partition_and_chunk_text(content)
+        else:
+            # Text/HTML content: partition as text or HTML
+            chunks = partition_and_chunk_text(content)
+    except Exception as e:
+        logger.error(f"unstructured processing failed: {e}")
+        # Ultimate fallback: simple split on paragraphs
+        chunks = [p.strip() for p in content.split('\n\n') if p.strip()]
+        if not chunks:
+            chunks = [content[:CHUNK_SIZE]] if content else []
+    
+    logger.info(f"Split document into {len(chunks)} chunks using unstructured")
     
     # Create and save chunks
     for idx, chunk_content in enumerate(chunks):

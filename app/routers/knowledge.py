@@ -12,9 +12,6 @@ from loguru import logger
 from app.graph_models import KnowledgeDocument, KnowledgeChunk, Mode
 from app.tools.knowledge import (
     process_document,
-    extract_text_from_pdf,
-    extract_text_from_image,
-    fetch_url_content,
     KNOWLEDGE_FILES_DIR,
 )
 
@@ -59,37 +56,18 @@ async def process_file_async(
     enrichment_model: str,
     task_id: str
 ):
-    """Background task to process uploaded file."""
+    """Background task to process uploaded file using unstructured."""
     try:
         _processing_status[task_id] = ProcessingStatus(
             status="processing",
-            message=f"Extracting text from {filename}..."
+            message=f"Processing {filename} with unstructured..."
         )
         
-        # Extract text based on document type
-        if doc_type == "pdf":
-            content = await extract_text_from_pdf(file_path)
-        elif doc_type == "image":
-            content = await extract_text_from_image(file_path)
-        else:
-            content = file_path.read_text(encoding="utf-8", errors="ignore")
-        
-        if not content.strip():
-            _processing_status[task_id] = ProcessingStatus(
-                status="error",
-                message="No text content could be extracted from the file"
-            )
-            return
-        
-        _processing_status[task_id] = ProcessingStatus(
-            status="processing",
-            message=f"Processing {len(content)} characters..."
-        )
-        
-        # Process and store
+        # Process directly with unstructured - it handles all file types
+        # Pass empty content since we'll use file_path with unstructured
         doc = await process_document(
             mode_name=mode_name,
-            content=content,
+            content="",  # Not needed when file_path is provided
             filename=filename,
             doc_type=doc_type,
             file_path=str(file_path),
@@ -119,25 +97,11 @@ async def process_url_async(
     enrichment_model: str,
     task_id: str
 ):
-    """Background task to process URL."""
+    """Background task to process URL using unstructured."""
     try:
         _processing_status[task_id] = ProcessingStatus(
             status="processing",
-            message=f"Fetching content from {url}..."
-        )
-        
-        content = await fetch_url_content(url)
-        
-        if not content.strip() or content.startswith("Error:"):
-            _processing_status[task_id] = ProcessingStatus(
-                status="error",
-                message=f"Failed to fetch URL: {content}"
-            )
-            return
-        
-        _processing_status[task_id] = ProcessingStatus(
-            status="processing",
-            message=f"Processing {len(content)} characters..."
+            message=f"Processing URL with unstructured..."
         )
         
         # Extract filename from URL
@@ -147,9 +111,10 @@ async def process_url_async(
         if not filename.endswith(".html"):
             filename += ".html"
         
+        # Process with unstructured - it handles URL fetching and HTML parsing
         doc = await process_document(
             mode_name=mode_name,
-            content=content,
+            content="",  # Not needed - unstructured fetches from source_url
             filename=filename,
             doc_type="url",
             source_url=url,
