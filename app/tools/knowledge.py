@@ -233,9 +233,10 @@ async def process_document(
     return doc
 
 
-def retrieve_mode_knowledge(mode_name: str, query: str, limit: int = 5) -> list[dict]:
+def retrieve_mode_knowledge(mode_name: str, query: str, limit: int = 5, threshold: float | None = None) -> list[dict]:
     """Retrieve relevant knowledge chunks for a mode using vector similarity."""
     query_embedding = _embeddings.embed_query(query)
+    effective_threshold = threshold if threshold is not None else SIMILARITY_THRESHOLD
     
     with get_session() as session:
         result = session.run(
@@ -251,7 +252,7 @@ def retrieve_mode_knowledge(mode_name: str, query: str, limit: int = 5) -> list[
             embedding=query_embedding,
             mode_name=mode_name,
             limit=limit,
-            threshold=SIMILARITY_THRESHOLD
+            threshold=effective_threshold
         )
         
         chunks = []
@@ -268,9 +269,9 @@ def retrieve_mode_knowledge(mode_name: str, query: str, limit: int = 5) -> list[
         return chunks
 
 
-def get_mode_knowledge_text(mode_name: str, query: str, limit: int = 5) -> str:
+def get_mode_knowledge_text(mode_name: str, query: str, limit: int = 5, threshold: float | None = None) -> str:
     """Get formatted knowledge text for injection into prompt."""
-    chunks = retrieve_mode_knowledge(mode_name, query, limit)
+    chunks = retrieve_mode_knowledge(mode_name, query, limit, threshold)
     
     if not chunks:
         return ""
@@ -294,7 +295,7 @@ def get_mode_knowledge_text(mode_name: str, query: str, limit: int = 5) -> str:
 
 
 @tool
-def search_mode_knowledge(query: str, mode_name: str = "", limit: int = 5) -> str:
+def search_mode_knowledge(query: str, mode_name: str = "", limit: int = 5, threshold: float = 0.7) -> str:
     """Search the current mode's knowledge base for relevant information.
     
     Use this when you need to find specific information from uploaded documents,
@@ -304,11 +305,12 @@ def search_mode_knowledge(query: str, mode_name: str = "", limit: int = 5) -> st
         query: What to search for - be descriptive
         mode_name: The mode to search in (automatically provided)
         limit: Maximum number of results (default 5)
+        threshold: Minimum similarity threshold (automatically provided)
     """
     if not mode_name:
         return "No mode context available"
     
-    chunks = retrieve_mode_knowledge(mode_name, query, limit)
+    chunks = retrieve_mode_knowledge(mode_name, query, limit, threshold)
     
     if not chunks:
         return "No relevant knowledge found in the mode's knowledge base."
@@ -321,7 +323,7 @@ def search_mode_knowledge(query: str, mode_name: str = "", limit: int = 5) -> st
         topics = chunk.get("topics", [])
         score = chunk.get("score", 0)
         
-        entry = f"[{source}] (relevance: {score:.2f})"
+        entry = f"[{source}] (sim: {score:.2f})"
         if summary:
             entry += f"\nSummary: {summary}"
         if topics:

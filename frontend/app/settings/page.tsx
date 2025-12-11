@@ -22,7 +22,9 @@ import {
   Loader2Icon,
   FileIcon,
   GlobeIcon,
-  ImageIcon
+  ImageIcon,
+  EyeIcon,
+  HashIcon
 } from "lucide-react"
 import { useChatStore, ModeData } from "@/lib/store"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,6 +34,8 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -69,6 +73,23 @@ export default function SettingsPage() {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const [enrichWithLlm, setEnrichWithLlm] = useState(true)
   const [enrichmentModel, setEnrichmentModel] = useState("qwen3:4b")
+  
+  // Document chunks dialog state
+  const [selectedDocument, setSelectedDocument] = useState<{
+    id: string
+    filename: string
+    doc_type: string
+    source_url?: string
+    chunk_count: number
+    created_at: string
+  } | null>(null)
+  const [documentChunks, setDocumentChunks] = useState<Array<{
+    index: number
+    content: string
+    summary: string
+    topics: string[]
+  }>>([])
+  const [isLoadingChunks, setIsLoadingChunks] = useState(false)
 
   // Load modes and models from cache or fetch if stale
   useEffect(() => { 
@@ -111,7 +132,8 @@ export default function SettingsPage() {
       enabled_tools: [],
       max_memories: 5,
       max_tool_runs: 10,
-      is_template: false
+      is_template: false,
+      min_similarity: 0.7
     })
     setEditingName("")
   }
@@ -251,6 +273,26 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error("Failed to delete document:", error)
+    }
+  }
+
+  const fetchDocumentChunks = async (doc: typeof selectedDocument) => {
+    if (!editingMode?.name || !doc) return
+    
+    setSelectedDocument(doc)
+    setIsLoadingChunks(true)
+    setDocumentChunks([])
+    
+    try {
+      const res = await fetch(`${API_URL}/modes/${editingMode.name}/knowledge/${doc.id}`)
+      if (res.ok) {
+        const data = await res.json()
+        setDocumentChunks(data.chunks || [])
+      }
+    } catch (error) {
+      console.error("Failed to fetch document chunks:", error)
+    } finally {
+      setIsLoadingChunks(false)
     }
   }
 
@@ -571,6 +613,18 @@ export default function SettingsPage() {
                           </div>
                           <div className="flex items-center gap-3">
                             <div className="flex items-center gap-2">
+                              <Label className="text-xs text-muted-foreground">Min similarity</Label>
+                              <Slider 
+                                value={[editingMode.min_similarity ?? 0.7]} 
+                                min={0.3} 
+                                max={0.95} 
+                                step={0.05}
+                                onValueChange={([v]) => setEditingMode({ ...editingMode, min_similarity: v })} 
+                                className="w-24" 
+                              />
+                              <span className="text-xs font-mono w-8">{(editingMode.min_similarity ?? 0.7).toFixed(2)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
                               <Label className="text-xs text-muted-foreground">LLM enrichment</Label>
                               <Switch 
                                 checked={enrichWithLlm} 
@@ -656,7 +710,8 @@ export default function SettingsPage() {
                               {documents.map((doc) => (
                                 <div 
                                   key={doc.id}
-                                  className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/30 transition-colors"
+                                  className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/30 transition-colors cursor-pointer"
+                                  onClick={() => fetchDocumentChunks(doc)}
                                 >
                                   <div className="flex items-center gap-3 min-w-0">
                                     <div className="text-muted-foreground">
@@ -669,14 +724,24 @@ export default function SettingsPage() {
                                       </p>
                                     </div>
                                   </div>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon"
-                                    className="size-8 text-muted-foreground hover:text-destructive"
-                                    onClick={() => deleteDocument(doc.id)}
-                                  >
-                                    <Trash2 className="size-4" />
-                                  </Button>
+                                  <div className="flex items-center gap-1">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon"
+                                      className="size-8 text-muted-foreground hover:text-primary"
+                                      onClick={(e) => { e.stopPropagation(); fetchDocumentChunks(doc) }}
+                                    >
+                                      <EyeIcon className="size-4" />
+                                    </Button>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon"
+                                      className="size-8 text-muted-foreground hover:text-destructive"
+                                      onClick={(e) => { e.stopPropagation(); deleteDocument(doc.id) }}
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -707,6 +772,56 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Document Chunks Dialog */}
+      <Dialog open={selectedDocument !== null} onOpenChange={(open) => !open && setSelectedDocument(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedDocument && getDocTypeIcon(selectedDocument.doc_type)}
+              {selectedDocument?.filename}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedDocument?.chunk_count} chunks • {selectedDocument && new Date(selectedDocument.created_at).toLocaleDateString()}
+              {selectedDocument?.source_url && (
+                <span className="block text-xs mt-1 truncate">{selectedDocument.source_url}</span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <ScrollArea className="max-h-[60vh] pr-4">
+            {isLoadingChunks ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : documentChunks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No chunks found</p>
+            ) : (
+              <div className="space-y-4">
+                {documentChunks.map((chunk) => (
+                  <div key={chunk.index} className="p-4 rounded-lg border bg-muted/30">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge variant="outline" className="text-xs">
+                        <HashIcon className="size-3 mr-1" />
+                        {chunk.index}
+                      </Badge>
+                      {chunk.topics.length > 0 && chunk.topics.map((topic) => (
+                        <Badge key={topic} variant="secondary" className="text-xs">
+                          {topic}
+                        </Badge>
+                      ))}
+                    </div>
+                    {chunk.summary && (
+                      <p className="text-sm font-medium mb-2">{chunk.summary}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{chunk.content}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </SidebarInset>
   )
 }

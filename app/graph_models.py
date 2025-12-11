@@ -270,11 +270,12 @@ class Mode(BaseModel):
     max_memories: int = 5
     max_tool_runs: int = 10
     is_template: bool = False
+    min_similarity: float = 0.7
 
     def save(self):
         with _driver.session() as session:
             session.run(
-                "MERGE (m:Mode {name: $name}) SET m.prompt = $prompt, m.enabled_tools = $enabled_tools, m.max_memories = $max_memories, m.max_tool_runs = $max_tool_runs, m.is_template = $is_template",
+                "MERGE (m:Mode {name: $name}) SET m.prompt = $prompt, m.enabled_tools = $enabled_tools, m.max_memories = $max_memories, m.max_tool_runs = $max_tool_runs, m.is_template = $is_template, m.min_similarity = $min_similarity",
                 **self.model_dump()
             )
         return self.name

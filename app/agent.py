@@ -111,6 +111,7 @@ class ConversationManager:
         self.capabilities: list[str] = []
         self.max_tool_runs = 10
         self.max_memories = 5
+        self.min_similarity: float = 0.7
         self.enabled_tools: list[str] | None = None
         self.current_mode_name: str = "default"
 
@@ -146,13 +147,14 @@ class ConversationManager:
 
     def get_mode_knowledge(self, query: str, limit: int = 5) -> str:
         """Retrieve relevant knowledge from the current mode's knowledge base."""
-        return get_mode_knowledge_text(self.current_mode_name, query, limit)
+        return get_mode_knowledge_text(self.current_mode_name, query, limit, self.min_similarity)
 
     async def stream_response(self, user_input: str, mode_name: str = "psychological", history: list[dict] | None = None):
         mode = get_mode(mode_name)
         self.current_mode_name = mode_name
         self.max_memories = mode.max_memories
         self.max_tool_runs = mode.max_tool_runs
+        self.min_similarity = mode.min_similarity
         self.enabled_tools = mode.enabled_tools if mode.enabled_tools else None
         self.agent = None
         
@@ -311,16 +313,18 @@ class ConversationManager:
                         yield {"type": "tool_denied", "tool_id": tool_id, "name": tool_name}
                     else:
                         tool = tools_dict.get(tool_name)
-                        # Inject mode_name for knowledge search tool
+                        # Inject mode_name and threshold for knowledge search tool
                         if tool_name == "search_mode_knowledge":
                             tool_args["mode_name"] = self.current_mode_name
+                            tool_args["threshold"] = self.min_similarity
                         tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                         yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 else:
                     tool = tools_dict.get(tool_name)
-                    # Inject mode_name for knowledge search tool
+                    # Inject mode_name and threshold for knowledge search tool
                     if tool_name == "search_mode_knowledge":
                         tool_args["mode_name"] = self.current_mode_name
+                        tool_args["threshold"] = self.min_similarity
                     tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                     yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 
