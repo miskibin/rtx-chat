@@ -21,11 +21,13 @@ type Attachment = { id: string; name: string; type: string; size: number; data: 
 type ToolCall = { name: string; status: "started" | "completed" | "pending_confirmation" | "denied"; input?: Record<string, unknown>; output?: string; artifacts?: string[]; id?: string; category?: string }
 type MemorySearchOp = { type: "search"; status: "started" | "completed"; query?: string; memories?: string[] }
 type MemoryOp = MemorySearchOp
+type KnowledgeSearchOp = { type: "search"; status: "started" | "completed"; query?: string; chunks?: string[] }
+type KnowledgeOp = KnowledgeSearchOp
 type ThinkingBlock = { id: string; content: string; isStreaming: boolean }
-type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
-type LiveContent = { content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[] }
+type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[] }
+type LiveContent = { content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[] }
 type MessageMetadata = { elapsed_time: number; input_tokens: number; output_tokens: number; tokens_per_second: number; model?: string }
-type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; metadata?: MessageMetadata; experimental_attachments?: Attachment[] }
+type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[]; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; metadata?: MessageMetadata; experimental_attachments?: Attachment[] }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean; supports_vision: boolean }
 type PromptVariable = { name: string; desc: string }
 type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean }
@@ -199,6 +201,7 @@ export const useChatStore = create<ChatStore>()(
           availableModes: modes, 
           promptVariables: data.variables || [], 
           allTools: data.all_tools || [],
+          toolsByCategory: data.tools_by_category || {},
           cacheTimestamps: { ...get().cacheTimestamps, modes: Date.now() } 
         })
         return modes
@@ -263,4 +266,4 @@ export const useChatStore = create<ChatStore>()(
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, KnowledgeOp, KnowledgeSearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData }

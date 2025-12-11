@@ -3,12 +3,14 @@ from app.tools.filesystem import get_filesystem_tools
 from app.tools.web import get_web_tools
 from app.tools.memory import get_memory_tools
 from app.tools.other import get_other_tools
+from app.tools.knowledge import get_knowledge_tools
 
 TOOL_CATEGORIES = {
     "code": {"label": "Code Execution", "getter": get_code_tools},
     "filesystem": {"label": "Filesystem", "getter": get_filesystem_tools},
     "web": {"label": "Web", "getter": get_web_tools},
     "memory": {"label": "Memory", "getter": get_memory_tools},
+    "knowledge": {"label": "Knowledge Base", "getter": get_knowledge_tools},
     "other": {"label": "Other", "getter": get_other_tools},
 }
 

@@ -53,6 +53,10 @@ async def chat_stream(request: ChatRequest):
                     yield {"data": json.dumps({"memory": "search", "status": "started", "query": chunk["query"]})}
                 elif chunk["type"] == "memory_search_end":
                     yield {"data": json.dumps({"memory": "search", "status": "completed", "memories": chunk["memories"]})}
+                elif chunk["type"] == "knowledge_search_start":
+                    yield {"data": json.dumps({"knowledge": "search", "status": "started", "query": chunk["query"]})}
+                elif chunk["type"] == "knowledge_search_end":
+                    yield {"data": json.dumps({"knowledge": "search", "status": "completed", "chunks": chunk["chunks"]})}
                 elif chunk["type"] == "thinking":
                     yield {"data": json.dumps({"thinking": chunk["content"]})}
                 elif chunk["type"] == "content":

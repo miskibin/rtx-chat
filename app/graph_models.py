@@ -134,6 +134,121 @@ class Preference(Neo4jModel):
         return self.instruction
 
 
+class KnowledgeDocument(BaseModel):
+    """A document uploaded to a mode's knowledge base."""
+    id: str
+    mode_name: str
+    filename: str
+    doc_type: str  # "pdf", "url", "image", "text"
+    source_url: str | None = None
+    file_path: str | None = None
+    chunk_count: int = 0
+    created_at: str
+
+    def save(self) -> str:
+        with _driver.session() as session:
+            session.run(
+                """
+                MERGE (d:KnowledgeDocument {id: $id})
+                SET d.mode_name = $mode_name,
+                    d.filename = $filename,
+                    d.doc_type = $doc_type,
+                    d.source_url = $source_url,
+                    d.file_path = $file_path,
+                    d.chunk_count = $chunk_count,
+                    d.created_at = $created_at
+                WITH d
+                MATCH (m:Mode {name: $mode_name})
+                MERGE (m)-[:HAS_DOCUMENT]->(d)
+                """,
+                **self.model_dump()
+            )
+        return self.id
+
+    @staticmethod
+    def get(doc_id: str) -> "KnowledgeDocument | None":
+        with _driver.session() as session:
+            rec = session.run(
+                "MATCH (d:KnowledgeDocument {id: $id}) RETURN d",
+                id=doc_id
+            ).single()
+            return KnowledgeDocument(**dict(rec["d"])) if rec else None
+
+    @staticmethod
+    def get_by_mode(mode_name: str) -> list["KnowledgeDocument"]:
+        with _driver.session() as session:
+            return [
+                KnowledgeDocument(**dict(r["d"]))
+                for r in session.run(
+                    "MATCH (d:KnowledgeDocument {mode_name: $mode_name}) RETURN d ORDER BY d.created_at DESC",
+                    mode_name=mode_name
+                )
+            ]
+
+    @staticmethod
+    def delete(doc_id: str):
+        """Delete document and all its chunks."""
+        with _driver.session() as session:
+            session.run(
+                """
+                MATCH (d:KnowledgeDocument {id: $id})
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:KnowledgeChunk)
+                DETACH DELETE d, c
+                """,
+                id=doc_id
+            )
+
+
+class KnowledgeChunk(Neo4jModel):
+    """A chunk of text from a knowledge document, enriched with LLM summary and topics."""
+    document_id: str
+    mode_name: str
+    content: str
+    summary: str = ""
+    topics: list[str] = []
+    chunk_index: int
+    embedding: list[float] | None = None
+
+    @property
+    def embedding_text(self) -> str:
+        # Embed on summary + topics for better semantic matching
+        topics_str = ", ".join(self.topics) if self.topics else ""
+        return f"{self.summary} {topics_str}" if self.summary else self.content[:500]
+
+    @property
+    def _merge_key(self) -> dict:
+        return {"document_id": self.document_id, "chunk_index": self.chunk_index}
+
+    def save(self) -> str:
+        node_id = super().save()
+        # Create relationship to document
+        with _driver.session() as session:
+            session.run(
+                """
+                MATCH (d:KnowledgeDocument {id: $doc_id})
+                MATCH (c:KnowledgeChunk {document_id: $doc_id, chunk_index: $chunk_index})
+                MERGE (d)-[:HAS_CHUNK]->(c)
+                """,
+                doc_id=self.document_id, chunk_index=self.chunk_index
+            )
+        return node_id
+
+    @staticmethod
+    def get_by_document(document_id: str) -> list["KnowledgeChunk"]:
+        with _driver.session() as session:
+            return [
+                KnowledgeChunk(**dict(r["c"]))
+                for r in session.run(
+                    "MATCH (c:KnowledgeChunk {document_id: $doc_id}) RETURN c ORDER BY c.chunk_index",
+                    doc_id=document_id
+                )
+            ]
+
+    def __str__(self) -> str:
+        topics_str = f" [{', '.join(self.topics)}]" if self.topics else ""
+        return f"{self.summary}{topics_str}"
+
+
 class KnowsRelationship(BaseModel):
     relation_type: str = Field(description="e.g., 'friend', 'ex-girlfriend', 'colleague', 'family'")
     since: str | None = None

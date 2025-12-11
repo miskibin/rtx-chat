@@ -70,6 +70,7 @@ VARIABLES = [
     {"name": "{memories}", "desc": "Retrieved relevant memories"},
     {"name": "{user_preferences}", "desc": "User preferences from memory"},
     {"name": "{known_people}", "desc": "List of known people"},
+    {"name": "{mode_knowledge}", "desc": "Relevant knowledge from mode's knowledge base"},
 ]
 
 

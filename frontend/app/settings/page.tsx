@@ -15,7 +15,14 @@ import {
   BrainIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
-  MessageSquareIcon
+  MessageSquareIcon,
+  UploadIcon,
+  LinkIcon,
+  FileTextIcon,
+  Loader2Icon,
+  FileIcon,
+  GlobeIcon,
+  ImageIcon
 } from "lucide-react"
 import { useChatStore, ModeData } from "@/lib/store"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,6 +31,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -38,17 +46,35 @@ export default function SettingsPage() {
     titleGeneration,
     setTitleGeneration,
     autoSave,
-    setAutoSave
+    setAutoSave,
+    models,
+    fetchModelsIfStale
   } = useChatStore()
   const [editingMode, setEditingMode] = useState<ModeData | null>(null)
   const [editingName, setEditingName] = useState("")
   const [warning, setWarning] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("general")
+  
+  // Knowledge base state
+  const [documents, setDocuments] = useState<Array<{
+    id: string
+    filename: string
+    doc_type: string
+    source_url?: string
+    chunk_count: number
+    created_at: string
+  }>>([])
+  const [urlInput, setUrlInput] = useState("")
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
+  const [enrichWithLlm, setEnrichWithLlm] = useState(true)
+  const [enrichmentModel, setEnrichmentModel] = useState("qwen3:4b")
 
-  // Load modes from cache or fetch if stale
+  // Load modes and models from cache or fetch if stale
   useEffect(() => { 
     fetchModesIfStale()
-  }, [fetchModesIfStale])
+    fetchModelsIfStale()
+  }, [fetchModesIfStale, fetchModelsIfStale])
 
   const saveMode = async () => {
     if (!editingMode) return
@@ -110,6 +136,156 @@ export default function SettingsPage() {
     setEditingMode({ ...editingMode, enabled_tools: Array.from(tools) })
   }
 
+  // Knowledge base functions
+  const fetchDocuments = async (modeName: string) => {
+    try {
+      const res = await fetch(`${API_URL}/modes/${modeName}/knowledge`)
+      if (res.ok) {
+        const data = await res.json()
+        setDocuments(data.documents || [])
+      }
+    } catch (error) {
+      console.error("Failed to fetch documents:", error)
+    }
+  }
+
+  const uploadFile = async (file: File) => {
+    if (!editingMode?.name) return
+    setIsUploading(true)
+    setUploadStatus("Uploading...")
+    
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("enrich_with_llm", enrichWithLlm.toString())
+      formData.append("enrichment_model", enrichmentModel)
+      
+      const res = await fetch(`${API_URL}/modes/${editingMode.name}/knowledge/upload`, {
+        method: "POST",
+        body: formData
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        setUploadStatus("Processing...")
+        // Poll for status
+        pollTaskStatus(data.task_id)
+      } else {
+        setUploadStatus("Upload failed")
+        setIsUploading(false)
+      }
+    } catch (error) {
+      setUploadStatus("Upload failed")
+      setIsUploading(false)
+    }
+  }
+
+  const uploadUrl = async () => {
+    if (!editingMode?.name || !urlInput.trim()) return
+    setIsUploading(true)
+    setUploadStatus("Fetching URL...")
+    
+    try {
+      const res = await fetch(`${API_URL}/modes/${editingMode.name}/knowledge/url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: urlInput, enrich_with_llm: enrichWithLlm, enrichment_model: enrichmentModel })
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        setUploadStatus("Processing...")
+        setUrlInput("")
+        // Poll for status
+        pollTaskStatus(data.task_id)
+      } else {
+        setUploadStatus("Failed to process URL")
+        setIsUploading(false)
+      }
+    } catch (error) {
+      setUploadStatus("Failed to process URL")
+      setIsUploading(false)
+    }
+  }
+
+  const pollTaskStatus = async (taskId: string) => {
+    if (!editingMode?.name) return
+    
+    const checkStatus = async () => {
+      try {
+        const res = await fetch(`${API_URL}/modes/${editingMode.name}/knowledge/status/${taskId}`)
+        if (res.ok) {
+          const data = await res.json()
+          setUploadStatus(data.message)
+          
+          if (data.status === "completed") {
+            setIsUploading(false)
+            fetchDocuments(editingMode.name)
+            setTimeout(() => setUploadStatus(null), 3000)
+          } else if (data.status === "error") {
+            setIsUploading(false)
+            setTimeout(() => setUploadStatus(null), 5000)
+          } else {
+            // Still processing, poll again
+            setTimeout(checkStatus, 1000)
+          }
+        }
+      } catch (error) {
+        setIsUploading(false)
+        setUploadStatus("Failed to check status")
+      }
+    }
+    
+    checkStatus()
+  }
+
+  const deleteDocument = async (docId: string) => {
+    if (!editingMode?.name) return
+    
+    try {
+      const res = await fetch(`${API_URL}/modes/${editingMode.name}/knowledge/${docId}`, {
+        method: "DELETE"
+      })
+      if (res.ok) {
+        fetchDocuments(editingMode.name)
+      }
+    } catch (error) {
+      console.error("Failed to delete document:", error)
+    }
+  }
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      uploadFile(files[0])
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      uploadFile(files[0])
+    }
+  }
+
+  // Fetch documents when editing mode changes
+  useEffect(() => {
+    if (editingMode?.name) {
+      fetchDocuments(editingMode.name)
+    } else {
+      setDocuments([])
+    }
+  }, [editingMode?.name])
+
+  const getDocTypeIcon = (docType: string) => {
+    switch (docType) {
+      case "pdf": return <FileTextIcon className="size-4" />
+      case "url": return <GlobeIcon className="size-4" />
+      case "image": return <ImageIcon className="size-4" />
+      default: return <FileIcon className="size-4" />
+    }
+  }
 
   return (
     <SidebarInset className="flex flex-col h-screen bg-background">
@@ -381,6 +557,140 @@ export default function SettingsPage() {
                       })}
                     </CardContent>
                   </Card>
+
+                  {/* Knowledge Base Card */}
+                  {editingMode.name && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-sm">Knowledge Base</CardTitle>
+                            <CardDescription>
+                              Upload documents to give this mode specific knowledge. Use {"{mode_knowledge}"} in the prompt to inject relevant content.
+                            </CardDescription>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs text-muted-foreground">LLM enrichment</Label>
+                              <Switch 
+                                checked={enrichWithLlm} 
+                                onCheckedChange={setEnrichWithLlm}
+                              />
+                            </div>
+                            {enrichWithLlm && (
+                              <Select value={enrichmentModel} onValueChange={setEnrichmentModel}>
+                                <SelectTrigger className="w-40 h-8 text-xs">
+                                  <SelectValue placeholder="Model" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {models.map((m) => (
+                                    <SelectItem key={m.name} value={m.name} className="text-xs">
+                                      {m.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Upload Status */}
+                        {uploadStatus && (
+                          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${isUploading ? "bg-blue-500/10 text-blue-600" : uploadStatus.includes("failed") || uploadStatus.includes("error") ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
+                            {isUploading && <Loader2Icon className="size-4 animate-spin" />}
+                            <span>{uploadStatus}</span>
+                          </div>
+                        )}
+
+                        {/* File Upload Zone */}
+                        <div 
+                          onDrop={handleFileDrop}
+                          onDragOver={(e) => e.preventDefault()}
+                          className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary/50 hover:bg-accent/30 transition-colors cursor-pointer"
+                        >
+                          <input 
+                            type="file" 
+                            onChange={handleFileSelect}
+                            className="hidden" 
+                            id="file-upload"
+                            accept=".pdf,.txt,.md,.json,.png,.jpg,.jpeg,.webp"
+                            disabled={isUploading}
+                          />
+                          <label htmlFor="file-upload" className="cursor-pointer">
+                            <UploadIcon className="size-8 mx-auto mb-2 text-muted-foreground" />
+                            <p className="text-sm font-medium">Drop files here or click to upload</p>
+                            <p className="text-xs text-muted-foreground mt-1">PDF, images, text files</p>
+                          </label>
+                        </div>
+
+                        {/* URL Input */}
+                        <div className="flex gap-2">
+                          <div className="flex-1 relative">
+                            <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                            <Input 
+                              value={urlInput}
+                              onChange={(e) => setUrlInput(e.target.value)}
+                              placeholder="https://example.com/page"
+                              className="pl-9"
+                              disabled={isUploading}
+                              onKeyDown={(e) => e.key === "Enter" && uploadUrl()}
+                            />
+                          </div>
+                          <Button 
+                            onClick={uploadUrl} 
+                            disabled={!urlInput.trim() || isUploading}
+                            variant="outline"
+                          >
+                            Add URL
+                          </Button>
+                        </div>
+
+                        {/* Documents List */}
+                        {documents.length > 0 && (
+                          <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                              Documents ({documents.length})
+                            </Label>
+                            <div className="space-y-2 max-h-48 overflow-auto">
+                              {documents.map((doc) => (
+                                <div 
+                                  key={doc.id}
+                                  className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/30 transition-colors"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className="text-muted-foreground">
+                                      {getDocTypeIcon(doc.doc_type)}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium truncate">{doc.filename}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {doc.chunk_count} chunks • {new Date(doc.created_at).toLocaleDateString()}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon"
+                                    className="size-8 text-muted-foreground hover:text-destructive"
+                                    onClick={() => deleteDocument(doc.id)}
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {documents.length === 0 && !isUploading && (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No documents uploaded yet. Add files or URLs to build this mode's knowledge base.
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground">

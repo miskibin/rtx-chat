@@ -14,6 +14,7 @@ dotenv.load_dotenv()
 from app.tools import get_tools
 from app.tools.memory import get_memory_tools, list_people, retrieve_context, get_user_preferences
 from app.tools.other import get_conversation_summary, set_conversation_summary
+from app.tools.knowledge import get_mode_knowledge_text, retrieve_mode_knowledge
 from app.graph_models import Mode
 from app.routers.models import get_provider_config
 
@@ -111,6 +112,7 @@ class ConversationManager:
         self.max_tool_runs = 10
         self.max_memories = 5
         self.enabled_tools: list[str] | None = None
+        self.current_mode_name: str = "default"
 
     def set_model(self, model_name: str):
         if model_name != self.model_name:
@@ -142,8 +144,13 @@ class ConversationManager:
     def get_people(self) -> list[str]:
         return list_people()
 
+    def get_mode_knowledge(self, query: str, limit: int = 5) -> str:
+        """Retrieve relevant knowledge from the current mode's knowledge base."""
+        return get_mode_knowledge_text(self.current_mode_name, query, limit)
+
     async def stream_response(self, user_input: str, mode_name: str = "psychological", history: list[dict] | None = None):
         mode = get_mode(mode_name)
+        self.current_mode_name = mode_name
         self.max_memories = mode.max_memories
         self.max_tool_runs = mode.max_tool_runs
         self.enabled_tools = mode.enabled_tools if mode.enabled_tools else None
@@ -154,6 +161,13 @@ class ConversationManager:
             yield {"type": "memory_search_start", "query": user_input[:100]}
             memories_text = self.get_memories(user_input)
             yield {"type": "memory_search_end", "memories": memories_text.split("\n") if memories_text else []}
+
+        # Retrieve mode-specific knowledge
+        knowledge_text = ""
+        if "{mode_knowledge}" in mode.prompt:
+            yield {"type": "knowledge_search_start", "query": user_input[:100]}
+            knowledge_text = self.get_mode_knowledge(user_input, limit=5)
+            yield {"type": "knowledge_search_end", "chunks": knowledge_text.split("\n\n") if knowledge_text else []}
 
         preferences = self.get_preferences()
         preferences_text = f"User preferences:\n{preferences}" if preferences else ""
@@ -167,6 +181,7 @@ class ConversationManager:
                 user_preferences=preferences_text,
                 memories=f"Relevant memories:\n{memories_text}" if memories_text else "",
                 known_people=known_people_text,
+                mode_knowledge=f"Relevant knowledge:\n{knowledge_text}" if knowledge_text else "",
             )
         )
 
@@ -296,10 +311,16 @@ class ConversationManager:
                         yield {"type": "tool_denied", "tool_id": tool_id, "name": tool_name}
                     else:
                         tool = tools_dict.get(tool_name)
+                        # Inject mode_name for knowledge search tool
+                        if tool_name == "search_mode_knowledge":
+                            tool_args["mode_name"] = self.current_mode_name
                         tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                         yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 else:
                     tool = tools_dict.get(tool_name)
+                    # Inject mode_name for knowledge search tool
+                    if tool_name == "search_mode_knowledge":
+                        tool_args["mode_name"] = self.current_mode_name
                     tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                     yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 

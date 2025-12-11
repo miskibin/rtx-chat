@@ -86,6 +86,7 @@ import {
   ClockIcon,
   BrainIcon,
   DatabaseIcon,
+  BookOpenIcon,
   ImageIcon,
   CopyIcon,
   RefreshCwIcon,
@@ -100,6 +101,7 @@ import {
   useChatStore,
   type ToolCall,
   type MemoryOp,
+  type KnowledgeOp,
   type ThinkingBlock,
   type MessageBranch,
   type MessageType,
@@ -109,6 +111,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type StreamItem =
   | { type: "memory"; data: MemoryOp }
+  | { type: "knowledge"; data: KnowledgeOp }
   | { type: "thinking"; data: ThinkingBlock }
   | { type: "tool"; data: ToolCall };
 
@@ -312,6 +315,7 @@ export default function Home() {
           thinkingBlocks: [] as ThinkingBlock[],
           toolCalls: [] as ToolCall[],
           memoryOps: [] as MemoryOp[],
+          knowledgeOps: [] as KnowledgeOp[],
         }
       : {
           id: crypto.randomUUID(),
@@ -320,6 +324,7 @@ export default function Home() {
           thinkingBlocks: [] as ThinkingBlock[],
           toolCalls: [] as ToolCall[],
           memoryOps: [] as MemoryOp[],
+          knowledgeOps: [] as KnowledgeOp[],
         };
 
     let historyMessages: any[] = [];
@@ -417,6 +422,34 @@ export default function Home() {
                     };
                 }
                 return { ...m, memoryOps };
+              })
+            );
+          } else if (data.knowledge === "search") {
+            const knowledgeKey = `${assistantMsg.id}-knowledge`;
+            setOpenItems((prev) => new Set(prev).add(knowledgeKey));
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMsg.id) return m;
+                const knowledgeOps = [...(m.knowledgeOps || [])];
+                if (data.status === "started")
+                  knowledgeOps.push({
+                    type: "search",
+                    status: "started",
+                    query: data.query,
+                  });
+                else {
+                  const idx = knowledgeOps.findIndex(
+                    (op) => op.type === "search" && op.status === "started"
+                  );
+                  if (idx >= 0)
+                    knowledgeOps[idx] = {
+                      type: "search",
+                      status: "completed",
+                      query: (knowledgeOps[idx] as { query?: string }).query,
+                      chunks: data.chunks,
+                    };
+                }
+                return { ...m, knowledgeOps };
               })
             );
           } else if (data.thinking) {
@@ -601,12 +634,14 @@ export default function Home() {
     let thinkingToSave = assistantMsg.thinkingBlocks;
     let toolsToSave = assistantMsg.toolCalls;
     let memoryToSave = assistantMsg.memoryOps;
+    let knowledgeToSave = assistantMsg.knowledgeOps;
     
     if (currentIdx === (assistantMsg.branches?.length || 0) && assistantMsg.liveContent) {
       contentToSave = assistantMsg.liveContent.content;
       thinkingToSave = assistantMsg.liveContent.thinkingBlocks;
       toolsToSave = assistantMsg.liveContent.toolCalls;
       memoryToSave = assistantMsg.liveContent.memoryOps;
+      knowledgeToSave = assistantMsg.liveContent.knowledgeOps;
     }
     
     const newBranch: MessageBranch = {
@@ -615,6 +650,7 @@ export default function Home() {
       thinkingBlocks: thinkingToSave,
       toolCalls: toolsToSave,
       memoryOps: memoryToSave,
+      knowledgeOps: knowledgeToSave,
     };
 
     setMessages((prev) =>
@@ -667,6 +703,7 @@ export default function Home() {
         thinkingBlocks: [],
         toolCalls: [],
         memoryOps: [],
+        knowledgeOps: [],
       });
       return truncated;
     });
@@ -698,6 +735,7 @@ export default function Home() {
             thinkingBlocks: m.thinkingBlocks,
             toolCalls: m.toolCalls,
             memoryOps: m.memoryOps,
+            knowledgeOps: m.knowledgeOps,
           };
         } else if (currentIdx < branches.length) {
           branches[currentIdx] = {
@@ -706,6 +744,7 @@ export default function Home() {
             thinkingBlocks: m.thinkingBlocks,
             toolCalls: m.toolCalls,
             memoryOps: m.memoryOps,
+            knowledgeOps: m.knowledgeOps,
           };
         }
         
@@ -719,6 +758,7 @@ export default function Home() {
             thinkingBlocks: liveContent.thinkingBlocks,
             toolCalls: liveContent.toolCalls,
             memoryOps: liveContent.memoryOps,
+            knowledgeOps: liveContent.knowledgeOps,
           };
         }
         
@@ -732,6 +772,7 @@ export default function Home() {
           thinkingBlocks: branch.thinkingBlocks,
           toolCalls: branch.toolCalls,
           memoryOps: branch.memoryOps,
+          knowledgeOps: branch.knowledgeOps,
         };
       })
     );
@@ -781,11 +822,13 @@ export default function Home() {
 
   const buildStreamOrder = (msg: {
     memoryOps?: MemoryOp[];
+    knowledgeOps?: KnowledgeOp[];
     thinkingBlocks?: ThinkingBlock[];
     toolCalls?: ToolCall[];
   }): StreamItem[] => {
     const items: StreamItem[] = [];
     msg.memoryOps?.forEach((m) => items.push({ type: "memory", data: m }));
+    msg.knowledgeOps?.forEach((k) => items.push({ type: "knowledge", data: k }));
     let thinkIdx = 0,
       toolIdx = 0;
     const thinks = msg.thinkingBlocks || [];
@@ -906,6 +949,49 @@ export default function Home() {
                                       <TaskItem key={j}>
                                         <code className="text-xs bg-muted px-1 rounded">
                                           {m}
+                                        </code>
+                                      </TaskItem>
+                                    ))}
+                                  </TaskContent>
+                                </Task>
+                              );
+                            }
+                          }
+                          if (item.type === "knowledge") {
+                            const op = item.data;
+                            if (op.type === "search") {
+                              const key = `${msg.id}-knowledge`;
+                              return (
+                                <Task
+                                  key={`knowledge-${i}`}
+                                  open={isOpen(key)}
+                                  onOpenChange={() => toggleOpen(key)}
+                                >
+                                  <TaskTrigger>
+                                    <div className="flex cursor-pointer items-center gap-2 text-muted-foreground hover:text-foreground">
+                                      <BookOpenIcon className="size-4" />
+                                      <span className="text-sm">
+                                        Knowledge Search
+                                      </span>
+                                      {op.status === "started" ? (
+                                        <ClockIcon className="size-3 animate-pulse" />
+                                      ) : (
+                                        <CheckCircleIcon className="size-3 text-green-600" />
+                                      )}
+                                    </div>
+                                  </TaskTrigger>
+                                  <TaskContent>
+                                    {op.query && (
+                                      <TaskItem>
+                                        <code className="text-xs bg-muted px-1 rounded">
+                                          {op.query}
+                                        </code>
+                                      </TaskItem>
+                                    )}
+                                    {op.chunks?.map((chunk, j) => (
+                                      <TaskItem key={j}>
+                                        <code className="text-xs bg-muted px-1 rounded whitespace-pre-wrap">
+                                          {chunk}
                                         </code>
                                       </TaskItem>
                                     ))}
