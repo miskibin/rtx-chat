@@ -55,8 +55,6 @@ def retrieve_context(
         query: Search text. Use descriptive phrases like "user's work", "hobbies", "family members"
         entity_names: ONLY for Person lookup by exact name, e.g. ["Oliwka", "Jan"]. NOT for "User"!
         node_labels: Filter results: ["Person", "Fact", "Event", "Preference"]
-    
-    To get ALL user info, use list_all_memories() instead.
     """
     label_to_model = {"Person": Person, "Event": Event, "Fact": Fact, "Preference": Preference}
     
