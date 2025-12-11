@@ -4,10 +4,10 @@ import { persist } from "zustand/middleware"
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 const CACHE_DURATIONS = {
-  models: 10 * 60 * 1000,
-  modes: 10 * 60 * 1000,
-  conversations: 30 * 1000,
-  memories: 60 * 1000,
+  models: 30 * 60 * 1000,      // 30 minutes (models rarely change)
+  modes: 30 * 60 * 1000,       // 30 minutes (modes rarely change)
+  conversations: 2 * 60 * 1000, // 2 minutes
+  memories: 2 * 60 * 1000,      // 2 minutes
 }
 
 type CacheTimestamps = {
@@ -51,6 +51,7 @@ type ChatStore = {
   availableModes: ModeData[]
   promptVariables: PromptVariable[]
   allTools: string[]
+  toolsByCategory: Record<string, { label: string; tools: { name: string; description: string }[] }>
   conversations: ConversationMeta[]
   currentConversationId: string | null
   titleGeneration: boolean
@@ -67,6 +68,7 @@ type ChatStore = {
   setEditingMessageId: (id: string | null) => void
   setSelectedMode: (mode: string) => void
   setAvailableModes: (modes: ModeData[], variables: PromptVariable[], allTools: string[]) => void
+  setToolsByCategory: (toolsByCategory: Record<string, { label: string; tools: { name: string; description: string }[] }>) => void
   clearMessages: () => void
   setConversations: (conversations: ConversationMeta[]) => void
   setCurrentConversationId: (id: string | null) => void
@@ -75,6 +77,7 @@ type ChatStore = {
   setTitleGeneration: (enabled: boolean) => void
   setAutoSave: (enabled: boolean) => void
   setMemoriesData: (data: MemoriesData) => void
+  fetchInitData: () => Promise<{ models: Model[]; modes: ModeData[]; conversations: ConversationMeta[] }>
   fetchModelsIfStale: () => Promise<Model[]>
   fetchModesIfStale: () => Promise<ModeData[]>
   fetchConversationsIfStale: () => Promise<ConversationMeta[]>
@@ -100,6 +103,7 @@ export const useChatStore = create<ChatStore>()(
       availableModes: [],
       promptVariables: [],
       allTools: [],
+      toolsByCategory: {},
       conversations: [],
       currentConversationId: null,
       titleGeneration: true,
@@ -116,6 +120,7 @@ export const useChatStore = create<ChatStore>()(
       setEditingMessageId: (editingMessageId) => set({ editingMessageId }),
       setSelectedMode: (selectedMode) => set({ selectedMode }),
       setAvailableModes: (modes, variables, allTools) => set({ availableModes: modes, promptVariables: variables, allTools }),
+      setToolsByCategory: (toolsByCategory) => set({ toolsByCategory }),
       clearMessages: () => set({ messages: [], currentConversationId: null }),
       setConversations: (conversations) => set({ conversations }),
       setCurrentConversationId: (currentConversationId) => set({ currentConversationId }),
@@ -132,6 +137,43 @@ export const useChatStore = create<ChatStore>()(
       invalidateCache: (key) => set((state) => ({ cacheTimestamps: { ...state.cacheTimestamps, [key]: 0 } })),
       _hasHydrated: false,
       setHasHydrated: (state) => set({ _hasHydrated: state }),
+
+      fetchInitData: async () => {
+        const state = get()
+        const now = Date.now()
+        const modelsValid = state.models.length > 0 && isCacheValid(state.cacheTimestamps.models, CACHE_DURATIONS.models)
+        const modesValid = state.availableModes.length > 0 && isCacheValid(state.cacheTimestamps.modes, CACHE_DURATIONS.modes)
+        const conversationsValid = state.conversations.length > 0 && isCacheValid(state.cacheTimestamps.conversations, CACHE_DURATIONS.conversations)
+        
+        // If all caches are valid, return cached data
+        if (modelsValid && modesValid && conversationsValid) {
+          return { models: state.models, modes: state.availableModes, conversations: state.conversations }
+        }
+        
+        // Fetch combined data from /init endpoint
+        const res = await fetch(`${API_URL}/init`)
+        const data = await res.json()
+        const models = data.models || []
+        const modes = data.modes || []
+        const conversations = data.conversations || []
+        
+        set({ 
+          models,
+          availableModes: modes,
+          promptVariables: data.variables || [],
+          allTools: data.all_tools || [],
+          toolsByCategory: data.tools_by_category || {},
+          conversations,
+          cacheTimestamps: { 
+            ...get().cacheTimestamps, 
+            models: now, 
+            modes: now, 
+            conversations: now 
+          } 
+        })
+        
+        return { models, modes, conversations }
+      },
 
       fetchModelsIfStale: async () => {
         const state = get()

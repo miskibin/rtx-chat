@@ -15,6 +15,7 @@ from app.tools import get_tools
 from app.tools.memory import get_memory_tools, list_people, retrieve_context, get_user_preferences
 from app.tools.other import get_conversation_summary, set_conversation_summary
 from app.graph_models import Mode
+from app.routers.models import get_provider_config
 
 pending_confirmations: dict[str, asyncio.Event] = {}
 confirmation_results: dict[str, bool] = {}
@@ -30,7 +31,10 @@ def set_confirmation_result(tool_id: str, approved: bool):
 DEFAULT_PROMPT = """You are a helpful AI assistant with memory capabilities.
 
 📅 {datetime}
+#### User preferences:
 {user_preferences}
+
+#### Relevant memories:
 {memories}
 
 ━━━ MEMORY MANAGEMENT ━━━
@@ -50,6 +54,7 @@ EXAMPLES:
 ✅ add_fact("Owns red Tesla Model 3", category="possession")
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
+##### Known people:
 {known_people}
 
 Be helpful, warm, and concise."""
@@ -63,8 +68,9 @@ def get_mode(name: str) -> Mode:
 def get_model_capabilities(model_name: str) -> list[str]:
     if not model_name:
         return []
-    if model_name.startswith("grok"):
-        return ["tools"]
+    # External models all support tools and vision
+    if get_provider_config(model_name):
+        return ["tools", "vision"]
     import ollama
     info = ollama.show(model_name)
     return info.capabilities or []
@@ -77,12 +83,10 @@ def create_agent(
 ):
     logger.info(f"Creating agent: {model_name}, thinking={supports_thinking}")
     
-    if model_name.startswith("grok"):
-        llm = ChatOpenAI(
-            model=model_name,
-            api_key=os.getenv("LLM_API_KEY"),
-            base_url=os.getenv("LLM_API_URL"),
-        )
+    provider_config = get_provider_config(model_name)
+    if provider_config:
+        api_key, base_url = provider_config
+        llm = ChatOpenAI(model=model_name, api_key=api_key, base_url=base_url)
     else:
         llm = ChatOllama(model=model_name, reasoning=True if supports_thinking else None)
 
@@ -292,11 +296,11 @@ class ConversationManager:
                         yield {"type": "tool_denied", "tool_id": tool_id, "name": tool_name}
                     else:
                         tool = tools_dict.get(tool_name)
-                        tool_result = tool.invoke(tool_args) if tool else "Tool not found"
+                        tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                         yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 else:
                     tool = tools_dict.get(tool_name)
-                    tool_result = tool.invoke(tool_args) if tool else "Tool not found"
+                    tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                     yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 
                 self.messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
@@ -311,7 +315,6 @@ class ConversationManager:
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
             "tokens_per_second": round(tokens_per_second, 1),
-            "model": self.model_name,
         }
 
     def clear(self):

@@ -17,7 +17,7 @@ import {
   SparklesIcon,
   MessageSquareIcon
 } from "lucide-react"
-import { useChatStore, ModeData, PromptVariable } from "@/lib/store"
+import { useChatStore, ModeData } from "@/lib/store"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
@@ -27,63 +27,49 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-type ToolsByCategory = Record<string, { label: string; tools: { name: string; description: string }[] }>
-
 export default function SettingsPage() {
   const { 
-    setAvailableModes, 
-    setModels,
+    availableModes,
+    promptVariables,
+    allTools,
+    toolsByCategory,
+    fetchModesIfStale,
+    invalidateCache,
     titleGeneration,
     setTitleGeneration,
     autoSave,
     setAutoSave
   } = useChatStore()
-  const [modes, setModes] = useState<ModeData[]>([])
-  const [variables, setVariables] = useState<PromptVariable[]>([])
-  const [allTools, setAllTools] = useState<string[]>([])
-  const [toolsByCategory, setToolsByCategory] = useState<ToolsByCategory>({})
   const [editingMode, setEditingMode] = useState<ModeData | null>(null)
   const [editingName, setEditingName] = useState("")
   const [warning, setWarning] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("general")
 
-  const fetchModes = () => {
-    fetch(`${API_URL}/modes`).then(r => r.json()).then(d => {
-      setModes(d.modes || [])
-      setVariables(d.variables || [])
-      setAllTools(d.all_tools || [])
-      setToolsByCategory(d.tools_by_category || {})
-      setAvailableModes(d.modes || [], d.variables || [], d.all_tools || [])
-    })
-  }
-
-  const fetchModels = () => {
-    fetch(`${API_URL}/models`).then(r => r.json()).then(d => {
-      setModels(d.models || [])
-    })
-  }
-
+  // Load modes from cache or fetch if stale
   useEffect(() => { 
-    fetchModes() 
-    fetchModels()
-  }, [])
+    fetchModesIfStale()
+  }, [fetchModesIfStale])
 
   const saveMode = async () => {
     if (!editingMode) return
     const modeToSave = { ...editingMode, name: editingName }
-    const exists = modes.find(m => m.name === editingName)
+    const exists = availableModes.find(m => m.name === editingName)
     const method = exists ? "PUT" : "POST"
     const url = method === "PUT" ? `${API_URL}/modes/${editingName}` : `${API_URL}/modes`
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(modeToSave) })
     const data = await res.json()
     setWarning(data.warning || null)
-    fetchModes()
+    // Invalidate cache and refetch
+    invalidateCache("modes")
+    await fetchModesIfStale()
     setEditingMode(null)
   }
 
   const deleteMode = async (name: string) => {
     await fetch(`${API_URL}/modes/${name}`, { method: "DELETE" })
-    fetchModes()
+    // Invalidate cache and refetch
+    invalidateCache("modes")
+    await fetchModesIfStale()
     if (editingMode?.name === name) setEditingMode(null)
   }
 
@@ -139,7 +125,7 @@ export default function SettingsPage() {
             <TabsTrigger value="modes" className="gap-2">
               <SparklesIcon className="size-4" />
               Modes
-              <Badge variant="secondary" className="ml-1 rounded text-[10px] px-1.5">{modes.length}</Badge>
+              <Badge variant="secondary" className="ml-1 rounded text-[10px] px-1.5">{availableModes.length}</Badge>
             </TabsTrigger>
           </TabsList>
         </div>
@@ -214,7 +200,7 @@ export default function SettingsPage() {
               )}
 
               <div className="space-y-2">
-                {modes.map(m => (
+                {availableModes.map(m => (
                   <div 
                     key={m.name} 
                     onClick={() => startEdit(m)}
@@ -293,7 +279,7 @@ export default function SettingsPage() {
                       <CardDescription>
                         Available variables:
                         <span className="flex gap-1 mt-2 flex-wrap">
-                          {variables.map(v => (
+                          {promptVariables.map(v => (
                             <Button 
                               key={v.name} 
                               variant="outline" 

@@ -164,8 +164,7 @@ export default function Home() {
     setConversations,
     titleGeneration,
     autoSave,
-    fetchModelsIfStale,
-    fetchModesIfStale,
+    fetchInitData,
     fetchConversationsIfStale,
     invalidateCache,
     _hasHydrated,
@@ -184,10 +183,8 @@ export default function Home() {
     if (!_hasHydrated) return;
     
     const loadSettings = async () => {
-      const [modes, allModels] = await Promise.all([
-        fetchModesIfStale(),
-        fetchModelsIfStale()
-      ]);
+      // Single API call fetches models, modes, and conversations
+      const { models: allModels, modes } = await fetchInitData();
       
       const currentMode = useChatStore.getState().selectedMode;
       if (!currentMode && modes.length > 0) {

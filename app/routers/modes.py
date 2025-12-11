@@ -91,7 +91,6 @@ class ModeCreate(BaseModel):
 
 @router.get("/modes")
 def list_modes():
-    seed_templates()
     return {"modes": [m.model_dump() for m in Mode.all()], "variables": VARIABLES, "all_tools": ALL_TOOL_NAMES, "tools_by_category": TOOLS_BY_CATEGORY}
 
 
