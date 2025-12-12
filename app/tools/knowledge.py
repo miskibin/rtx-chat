@@ -36,6 +36,30 @@ CHUNK_OVERLAP = 100
 SIMILARITY_THRESHOLD = 0.6
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}
 
+# Universal content tags for chunk classification (works for any domain)
+CHUNK_TAGS = [
+    "overview",      # high-level summaries, introductions
+    "detail",        # in-depth specifics, elaborations
+    "definition",    # what something is, terminology
+    "explanation",   # how/why something works
+    "instruction",   # steps, procedures, how-to
+    "example",       # illustrations, cases, samples
+    "reference",     # facts, specs, catalogs
+    "narrative",     # stories, experiences, events
+    "analysis",      # reasoning, evaluations
+    "comparison",    # similarities, differences
+    "opinion",       # views, perspectives, arguments
+    "quote",         # citations, sayings, excerpts
+    "question",      # queries, problems, prompts
+    "list",          # enumerations, collections
+    "data",          # statistics, measurements, figures
+    "code",          # programming, technical snippets
+    "tip",           # advice, recommendations
+    "warning",       # cautions, caveats, pitfalls
+    "context",       # background, prerequisites
+    "dialogue",      # conversations, exchanges, Q&A
+]
+
 
 def get_session():
     return _driver.session(database="neo4j")
@@ -106,16 +130,18 @@ def partition_and_chunk(file_path: Path, chunk_size: int = CHUNK_SIZE, overlap: 
 
 
 async def enrich_chunk_with_llm(content: str, model: str = "qwen3:4b") -> dict:
-    """Use LLM to generate summary and extract topics from a chunk."""
+    """Use LLM to generate summary and classify chunk into fixed content-type tags."""
     from app.routers.models import get_provider_config
     
-    prompt = f"""Analyze this text and return JSON with exactly this format:
-{{"summary": "1-2 sentence summary of the main points", "topics": ["topic1", "topic2", "topic3"]}}
+    prompt = f"""Classify this text with 1-2 tags from this list:
+overview, detail, definition, explanation, instruction, example, reference, narrative, analysis, comparison, opinion, quote, question, list, data, code, tip, warning, context, dialogue
+
+Return JSON: {{"summary": "1-2 sentence summary", "tags": ["tag1", "tag2"]}}
 
 Text:
 {content[:1500]}
 
-Return ONLY valid JSON, no other text."""
+JSON only:"""
 
     try:
         provider_config = get_provider_config(model)
@@ -141,9 +167,12 @@ Return ONLY valid JSON, no other text."""
             result_text = response.message.content.strip()
         
         result = json.loads(result_text)
+        # Filter to only valid tags
+        raw_tags = result.get("tags", [])
+        valid_tags = [t for t in raw_tags if t in CHUNK_TAGS][:2]
         return {
             "summary": result.get("summary", "")[:500],
-            "topics": result.get("topics", [])[:10]
+            "topics": valid_tags  # Keep field name for backward compatibility
         }
     except Exception as e:
         logger.warning(f"LLM enrichment failed: {e}")
@@ -274,7 +303,8 @@ def get_mode_knowledge_text(mode_name: str, query: str, limit: int = 5, threshol
     
     output = []
     for chunk in chunks:
-        entry = f"[{chunk['source']}]"
+        # Include similarity score so UIs can display ranking/quality at a glance.
+        entry = f"[{chunk['source']}] (sim: {chunk['score']:.2f})"
         if chunk["summary"]:
             entry += f" {chunk['summary']}"
         if chunk["topics"]:

@@ -1,0 +1,4 @@
+{
+  "knowledge_min_similarity": 0.9,
+  "memory_min_similarity": 0.9
+}

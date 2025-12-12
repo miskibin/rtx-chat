@@ -30,7 +30,7 @@ type MessageMetadata = { elapsed_time: number; input_tokens: number; output_toke
 type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[]; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; metadata?: MessageMetadata; experimental_attachments?: Attachment[] }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean; supports_vision: boolean }
 type PromptVariable = { name: string; desc: string }
-type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean; min_similarity: number }
+type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean; min_similarity?: number }
 type ConversationMeta = { id: string; title: string; updated_at: string; mode: string; model: string }
 type Person = { id: string; name: string; description: string; relation: string; sentiment: string }
 type Event = { id: string; description: string; date: string; participants: string[] }
@@ -40,6 +40,7 @@ type GraphNode = { id: string; type: string; name: string }
 type GraphLink = { source: string; target: string; type: string }
 type GraphData = { nodes: GraphNode[]; links: GraphLink[] }
 type MemoriesData = { memories: Memory[]; people: Person[]; events: Event[]; duplicates: Duplicate[]; graphData: GraphData }
+type GlobalSettings = { knowledge_min_similarity: number; memory_min_similarity: number }
 
 type ChatStore = {
   messages: MessageType[]
@@ -59,6 +60,7 @@ type ChatStore = {
   titleGeneration: boolean
   autoSave: boolean
   memoriesData: MemoriesData
+  globalSettings: GlobalSettings
   cacheTimestamps: CacheTimestamps
   setMessages: (fn: (msgs: MessageType[]) => MessageType[]) => void
   addMessage: (msg: MessageType) => void
@@ -79,6 +81,9 @@ type ChatStore = {
   setTitleGeneration: (enabled: boolean) => void
   setAutoSave: (enabled: boolean) => void
   setMemoriesData: (data: MemoriesData) => void
+  setGlobalSettings: (settings: GlobalSettings) => void
+  fetchGlobalSettings: () => Promise<GlobalSettings>
+  updateGlobalSettings: (patch: Partial<GlobalSettings>) => Promise<GlobalSettings>
   fetchInitData: () => Promise<{ models: Model[]; modes: ModeData[]; conversations: ConversationMeta[] }>
   fetchModelsIfStale: () => Promise<Model[]>
   fetchModesIfStale: () => Promise<ModeData[]>
@@ -111,6 +116,7 @@ export const useChatStore = create<ChatStore>()(
       titleGeneration: true,
       autoSave: true,
       memoriesData: { memories: [], people: [], events: [], duplicates: [], graphData: { nodes: [], links: [] } },
+      globalSettings: { knowledge_min_similarity: 0.7, memory_min_similarity: 0.65 },
       cacheTimestamps: { models: 0, modes: 0, conversations: 0, memories: 0 },
       setMessages: (fn) => set((state) => ({ messages: fn(state.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
@@ -136,6 +142,23 @@ export const useChatStore = create<ChatStore>()(
       setTitleGeneration: (titleGeneration) => set({ titleGeneration }),
       setAutoSave: (autoSave) => set({ autoSave }),
       setMemoriesData: (memoriesData) => set({ memoriesData }),
+      setGlobalSettings: (globalSettings) => set({ globalSettings }),
+      fetchGlobalSettings: async () => {
+        const res = await fetch(`${API_URL}/settings`)
+        const settings = await res.json()
+        set({ globalSettings: settings })
+        return settings
+      },
+      updateGlobalSettings: async (patch) => {
+        const res = await fetch(`${API_URL}/settings`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch)
+        })
+        const settings = await res.json()
+        set({ globalSettings: settings })
+        return settings
+      },
       invalidateCache: (key) => set((state) => ({ cacheTimestamps: { ...state.cacheTimestamps, [key]: 0 } })),
       _hasHydrated: false,
       setHasHydrated: (state) => set({ _hasHydrated: state }),
@@ -266,4 +289,4 @@ export const useChatStore = create<ChatStore>()(
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, KnowledgeOp, KnowledgeSearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, KnowledgeOp, KnowledgeSearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData, GlobalSettings }

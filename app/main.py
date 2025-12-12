@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.routers import chat, models, memories, artifacts, modes, conversations, knowledge
+from app.routers import chat, models, memories, artifacts, modes, conversations, knowledge, settings
 from app.routers.modes import seed_templates, VARIABLES, ALL_TOOL_NAMES, TOOLS_BY_CATEGORY
 from app.routers.models import get_cached_models
 from app.graph_models import Mode, Conversation
@@ -36,6 +36,7 @@ app.include_router(artifacts.router)
 app.include_router(modes.router)
 app.include_router(conversations.router)
 app.include_router(knowledge.router)
+app.include_router(settings.router)
 
 
 @app.get("/health")

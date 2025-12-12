@@ -17,6 +17,7 @@ from app.tools.other import get_conversation_summary, set_conversation_summary
 from app.tools.knowledge import get_mode_knowledge_text, retrieve_mode_knowledge
 from app.graph_models import Mode
 from app.routers.models import get_provider_config
+from app.global_settings import load_settings
 
 pending_confirmations: dict[str, asyncio.Event] = {}
 confirmation_results: dict[str, bool] = {}
@@ -111,9 +112,11 @@ class ConversationManager:
         self.capabilities: list[str] = []
         self.max_tool_runs = 10
         self.max_memories = 5
-        self.min_similarity: float = 0.7
         self.enabled_tools: list[str] | None = None
         self.current_mode_name: str = "default"
+        # Global similarity thresholds (loaded fresh each request)
+        self.knowledge_min_similarity: float = 0.7
+        self.memory_min_similarity: float = 0.65
 
     def set_model(self, model_name: str):
         if model_name != self.model_name:
@@ -135,7 +138,7 @@ class ConversationManager:
         self.messages.append(AIMessage(content=content))
 
     def get_memories(self, query: str) -> str:
-        result = retrieve_context.invoke({"query": query, "limit": self.max_memories})
+        result = retrieve_context.invoke({"query": query, "limit": self.max_memories, "threshold": self.memory_min_similarity})
         return str(result) if result and result != "No results" else ""
 
     def get_preferences(self) -> str:
@@ -147,16 +150,20 @@ class ConversationManager:
 
     def get_mode_knowledge(self, query: str, limit: int = 5) -> str:
         """Retrieve relevant knowledge from the current mode's knowledge base."""
-        return get_mode_knowledge_text(self.current_mode_name, query, limit, self.min_similarity)
+        return get_mode_knowledge_text(self.current_mode_name, query, limit, self.knowledge_min_similarity)
 
     async def stream_response(self, user_input: str, mode_name: str = "psychological", history: list[dict] | None = None):
         mode = get_mode(mode_name)
         self.current_mode_name = mode_name
         self.max_memories = mode.max_memories
         self.max_tool_runs = mode.max_tool_runs
-        self.min_similarity = mode.min_similarity
         self.enabled_tools = mode.enabled_tools if mode.enabled_tools else None
         self.agent = None
+        
+        # Load global similarity settings fresh each request
+        global_settings = load_settings()
+        self.knowledge_min_similarity = global_settings.knowledge_min_similarity
+        self.memory_min_similarity = global_settings.memory_min_similarity
         
         memories_text = ""
         if "{memories}" in mode.prompt:
@@ -316,7 +323,7 @@ class ConversationManager:
                         # Inject mode_name and threshold for knowledge search tool
                         if tool_name == "search_mode_knowledge":
                             tool_args["mode_name"] = self.current_mode_name
-                            tool_args["threshold"] = self.min_similarity
+                            tool_args["threshold"] = self.knowledge_min_similarity
                         tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                         yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 else:
@@ -324,7 +331,7 @@ class ConversationManager:
                     # Inject mode_name and threshold for knowledge search tool
                     if tool_name == "search_mode_knowledge":
                         tool_args["mode_name"] = self.current_mode_name
-                        tool_args["threshold"] = self.min_similarity
+                        tool_args["threshold"] = self.knowledge_min_similarity
                     tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                     yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 

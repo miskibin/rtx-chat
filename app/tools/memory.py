@@ -42,12 +42,12 @@ def list_people() -> list[str]:
         return [r["name"] for r in result]
 
 
-SIMILARITY_THRESHOLD = 0.65
+DEFAULT_SIMILARITY_THRESHOLD = 0.65
 
 
 @tool
 def retrieve_context(
-    query: str, entity_names: list[str] = [], node_labels: list[str] = [], limit: int = 5
+    query: str, entity_names: list[str] = [], node_labels: list[str] = [], limit: int = 5, threshold: float | None = None
 ) -> str:
     """Semantic search in memory database. Returns facts, people, events, preferences.
     
@@ -55,7 +55,9 @@ def retrieve_context(
         query: Search text. Use descriptive phrases like "user's work", "hobbies", "family members"
         entity_names: ONLY for Person lookup by exact name, e.g. ["Oliwka", "Jan"]. NOT for "User"!
         node_labels: Filter results: ["Person", "Fact", "Event", "Preference"]
+        threshold: Minimum similarity score (0-1). Uses global setting if not provided.
     """
+    similarity_threshold = threshold if threshold is not None else DEFAULT_SIMILARITY_THRESHOLD
     label_to_model = {"Person": Person, "Event": Event, "Fact": Fact, "Preference": Preference}
     
     with get_session() as session:
@@ -90,7 +92,7 @@ def retrieve_context(
                     embedding=query_embedding, limit=limit
                 )
                 for rec in result:
-                    if rec["score"] < SIMILARITY_THRESHOLD:
+                    if rec["score"] < similarity_threshold:
                         logger.debug(f"Skipping Person with score {rec['score']}")
                         continue
                     person = Person(**dict(rec["node"]))
@@ -105,7 +107,7 @@ def retrieve_context(
                     embedding=query_embedding, limit=limit
                 )
                 for rec in result:
-                    if rec["score"] < SIMILARITY_THRESHOLD:
+                    if rec["score"] < similarity_threshold:
                         logger.debug(f"Skipping Event with score {rec['score']}")
                         continue
                     event = Event(**dict(rec["node"]))
@@ -119,7 +121,7 @@ def retrieve_context(
                     embedding=query_embedding, limit=limit
                 )
                 for rec in result:
-                    if rec["score"] < SIMILARITY_THRESHOLD:
+                    if rec["score"] < similarity_threshold:
                         logger.debug(f"Skipping {label} with score {rec['score']}")
                         continue
                     model = label_to_model[label]

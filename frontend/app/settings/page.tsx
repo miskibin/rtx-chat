@@ -21,7 +21,9 @@ import {
   Loader2Icon,
   FileIcon,
   EyeIcon,
-  HashIcon
+  HashIcon,
+  GlobeIcon,
+  ImageIcon
 } from "lucide-react"
 import { useChatStore, ModeData } from "@/lib/store"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -36,6 +38,32 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
+// Universal content tags with their colors (works for any domain)
+const TAG_COLORS: Record<string, string> = {
+  overview: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30",
+  detail: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30",
+  definition: "bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/30",
+  explanation: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30",
+  instruction: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+  example: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+  reference: "bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30",
+  narrative: "bg-pink-500/15 text-pink-600 dark:text-pink-400 border-pink-500/30",
+  analysis: "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30",
+  comparison: "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30",
+  opinion: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30",
+  quote: "bg-stone-500/15 text-stone-600 dark:text-stone-400 border-stone-500/30",
+  question: "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30",
+  list: "bg-zinc-500/15 text-zinc-600 dark:text-zinc-400 border-zinc-500/30",
+  data: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30",
+  code: "bg-lime-500/15 text-lime-600 dark:text-lime-400 border-lime-500/30",
+  tip: "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30",
+  warning: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30",
+  context: "bg-neutral-500/15 text-neutral-600 dark:text-neutral-400 border-neutral-500/30",
+  dialogue: "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-500/30",
+}
+
+const ALL_TAGS = Object.keys(TAG_COLORS)
+
 export default function SettingsPage() {
   const { 
     availableModes,
@@ -49,7 +77,10 @@ export default function SettingsPage() {
     autoSave,
     setAutoSave,
     models,
-    fetchModelsIfStale
+    fetchModelsIfStale,
+    globalSettings,
+    fetchGlobalSettings,
+    updateGlobalSettings
   } = useChatStore()
   const [editingMode, setEditingMode] = useState<ModeData | null>(null)
   const [editingName, setEditingName] = useState("")
@@ -86,12 +117,14 @@ export default function SettingsPage() {
     topics: string[]
   }>>([])
   const [isLoadingChunks, setIsLoadingChunks] = useState(false)
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
 
-  // Load modes and models from cache or fetch if stale
+  // Load modes, models, and global settings from cache or fetch if stale
   useEffect(() => { 
     fetchModesIfStale()
     fetchModelsIfStale()
-  }, [fetchModesIfStale, fetchModelsIfStale])
+    fetchGlobalSettings()
+  }, [fetchModesIfStale, fetchModelsIfStale, fetchGlobalSettings])
 
   const saveMode = async () => {
     if (!editingMode) return
@@ -128,8 +161,7 @@ export default function SettingsPage() {
       enabled_tools: [],
       max_memories: 5,
       max_tool_runs: 10,
-      is_template: false,
-      min_similarity: 0.7
+      is_template: false
     })
     setEditingName("")
   }
@@ -374,6 +406,56 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
+            {/* Similarity Thresholds Section */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-lg bg-violet-500/10">
+                    <BrainIcon className="size-5 text-violet-600 dark:text-violet-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">Retrieval Thresholds</CardTitle>
+                    <CardDescription>Minimum similarity scores for memory and knowledge retrieval (applies to all modes)</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Memory similarity</Label>
+                    <span className="text-sm font-mono text-muted-foreground">{globalSettings.memory_min_similarity.toFixed(2)}</span>
+                  </div>
+                  <Slider 
+                    value={[globalSettings.memory_min_similarity]} 
+                    min={0.3} 
+                    max={0.95} 
+                    step={0.05}
+                    onValueChange={([v]) => updateGlobalSettings({ memory_min_similarity: v })} 
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Lower values retrieve more memories but may include less relevant results
+                  </p>
+                </div>
+                <Separator />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Knowledge similarity</Label>
+                    <span className="text-sm font-mono text-muted-foreground">{globalSettings.knowledge_min_similarity.toFixed(2)}</span>
+                  </div>
+                  <Slider 
+                    value={[globalSettings.knowledge_min_similarity]} 
+                    min={0.3} 
+                    max={0.95} 
+                    step={0.05}
+                    onValueChange={([v]) => updateGlobalSettings({ knowledge_min_similarity: v })} 
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Lower values retrieve more knowledge chunks but may include less relevant content
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
           </div>
         </TabsContent>
 
@@ -591,37 +673,23 @@ export default function SettingsPage() {
                               Upload documents to give this mode specific knowledge. Use {"{mode_knowledge}"} in the prompt to inject relevant content.
                             </CardDescription>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2">
-                              <Label className="text-xs text-muted-foreground">Min similarity</Label>
-                              <Slider 
-                                value={[editingMode.min_similarity ?? 0.7]} 
-                                min={0.3} 
-                                max={0.95} 
-                                step={0.05}
-                                onValueChange={([v]) => setEditingMode({ ...editingMode, min_similarity: v })} 
-                                className="w-24" 
-                              />
-                              <span className="text-xs font-mono w-8">{(editingMode.min_similarity ?? 0.7).toFixed(2)}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Label className="text-xs text-muted-foreground">LLM enrichment</Label>
-                              <Select value={enrichmentModel} onValueChange={setEnrichmentModel}>
-                                <SelectTrigger className="w-52 h-8 text-xs">
-                                  <SelectValue placeholder="Model" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none" className="text-xs">
-                                    None (faster)
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-muted-foreground">LLM enrichment</Label>
+                            <Select value={enrichmentModel} onValueChange={setEnrichmentModel}>
+                              <SelectTrigger className="w-52 h-8 text-xs">
+                                <SelectValue placeholder="Model" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none" className="text-xs">
+                                  None (faster)
+                                </SelectItem>
+                                {models.map((m) => (
+                                  <SelectItem key={m.name} value={m.name} className="text-xs">
+                                    {m.name}
                                   </SelectItem>
-                                  {models.map((m) => (
-                                    <SelectItem key={m.name} value={m.name} className="text-xs">
-                                      {m.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                       </CardHeader>
@@ -718,7 +786,7 @@ export default function SettingsPage() {
 
                         {documents.length === 0 && !isUploading && (
                           <p className="text-sm text-muted-foreground text-center py-4">
-                            No documents uploaded yet. Add files or URLs to build this mode's knowledge base.
+                            No documents uploaded yet. Add files or URLs to build this mode&apos;s knowledge base.
                           </p>
                         )}
                       </CardContent>
@@ -742,7 +810,7 @@ export default function SettingsPage() {
       </Tabs>
 
       {/* Document Chunks Dialog */}
-      <Dialog open={selectedDocument !== null} onOpenChange={(open) => !open && setSelectedDocument(null)}>
+      <Dialog open={selectedDocument !== null} onOpenChange={(open) => { if (!open) { setSelectedDocument(null); setTagFilter(null); } }}>
         <DialogContent className="sm:max-w-5xl h-[85vh] flex flex-col">
           <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
@@ -757,6 +825,30 @@ export default function SettingsPage() {
             </DialogDescription>
           </DialogHeader>
           
+          {/* Tag Filter Bar */}
+          {documentChunks.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap shrink-0 pb-2 border-b">
+              <span className="text-xs text-muted-foreground mr-1">Filter:</span>
+              <Badge 
+                variant={tagFilter === null ? "default" : "outline"}
+                className="text-xs cursor-pointer"
+                onClick={() => setTagFilter(null)}
+              >
+                All
+              </Badge>
+              {ALL_TAGS.filter(tag => documentChunks.some(c => c.topics.includes(tag))).map((tag) => (
+                <Badge 
+                  key={tag}
+                  variant="outline"
+                  className={`text-xs cursor-pointer border ${tagFilter === tag ? TAG_COLORS[tag] : "hover:bg-accent"}`}
+                  onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                >
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
+          
           <div className="flex-1 overflow-hidden">
             <ScrollArea className="h-full pr-4">
               {isLoadingChunks ? (
@@ -766,8 +858,10 @@ export default function SettingsPage() {
               ) : documentChunks.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No chunks found</p>
               ) : (
-                <div className="space-y-4 pb-4">
-                  {documentChunks.map((chunk) => (
+                <div className="space-y-4 py-4">
+                  {documentChunks
+                    .filter(chunk => !tagFilter || chunk.topics.includes(tagFilter))
+                    .map((chunk) => (
                     <div key={chunk.index} className="p-4 rounded-lg border bg-muted/30">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <Badge variant="outline" className="text-xs">
@@ -775,7 +869,11 @@ export default function SettingsPage() {
                           {chunk.index}
                         </Badge>
                         {chunk.topics.length > 0 && chunk.topics.map((topic) => (
-                          <Badge key={topic} variant="secondary" className="text-xs">
+                          <Badge 
+                            key={topic} 
+                            variant="outline"
+                            className={`text-xs border ${TAG_COLORS[topic] || ""}`}
+                          >
                             {topic}
                           </Badge>
                         ))}
