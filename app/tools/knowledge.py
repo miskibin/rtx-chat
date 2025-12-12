@@ -6,13 +6,14 @@ Supports: .txt, .md, .pdf files only.
 See: https://docs.unstructured.io/open-source/core-functionality/overview
 """
 
+import asyncio
 import json
 import os
 import re
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Callable, Optional
 
 from langchain.tools import tool
 from langchain_ollama import OllamaEmbeddings
@@ -154,12 +155,19 @@ async def process_document(
     filename: str,
     file_path: str,
     enrich_with_llm: bool = True,
-    enrichment_model: str = "qwen3:4b"
+    enrichment_model: str = "qwen3:4b",
+    progress_callback: Optional[Callable[[str, int, int], None]] = None
 ) -> KnowledgeDocument:
     """Process a document file using unstructured for partitioning and chunking.
     
     Supports: .txt, .md, .pdf files only.
     """
+    async def update_progress(msg: str, current: int = 0, total: int = 0):
+        if progress_callback:
+            progress_callback(msg, current, total)
+        # Yield control to event loop so status polls can be served
+        await asyncio.sleep(0)
+    
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -173,8 +181,13 @@ async def process_document(
     doc_id = str(uuid.uuid4())
     created_at = datetime.now().isoformat()
     
-    # Partition and chunk using unstructured
-    chunks = partition_and_chunk(path)
+    # Partition and chunk using unstructured (run in thread pool to not block)
+    await update_progress(f"Partitioning {filename} (this may take a while)...")
+    loop = asyncio.get_event_loop()
+    chunks = await loop.run_in_executor(None, partition_and_chunk, path)
+    total_chunks = len(chunks)
+    
+    await update_progress(f"Partitioned into {total_chunks} chunks. Generating embeddings...", 0, total_chunks)
     
     # Determine doc_type from extension
     doc_type: Literal["pdf", "text"] = "pdf" if ext == ".pdf" else "text"
@@ -184,8 +197,11 @@ async def process_document(
         enrichment = {"summary": "", "topics": []}
         
         if enrich_with_llm and chunk_content.strip():
+            await update_progress(f"Enriching chunk {idx + 1}/{total_chunks} with LLM...", idx + 1, total_chunks)
             enrichment = await enrich_chunk_with_llm(chunk_content, enrichment_model)
             logger.debug(f"Chunk {idx}: {enrichment.get('summary', '')[:50]}...")
+        else:
+            await update_progress(f"Embedding chunk {idx + 1}/{total_chunks}...", idx + 1, total_chunks)
         
         chunk = KnowledgeChunk(
             document_id=doc_id,
@@ -195,7 +211,8 @@ async def process_document(
             topics=enrichment.get("topics", []),
             chunk_index=idx
         )
-        chunk.save()
+        # Run save in thread pool to not block event loop
+        await loop.run_in_executor(None, chunk.save)
     
     # Create and save document
     doc = KnowledgeDocument(

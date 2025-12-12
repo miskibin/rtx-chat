@@ -22,6 +22,8 @@ class ProcessingStatus(BaseModel):
     document_id: Optional[str] = None
     message: str
     chunk_count: int = 0
+    current_chunk: int = 0
+    total_chunks: int = 0
 
 
 # Store processing status
@@ -36,6 +38,19 @@ def get_file_type(filename: str) -> str:
     return "text"
 
 
+def update_status(task_id: str, **kwargs):
+    """Update processing status for a task."""
+    current = _processing_status.get(task_id, ProcessingStatus(status="processing", message=""))
+    _processing_status[task_id] = ProcessingStatus(
+        status=kwargs.get("status", current.status),
+        document_id=kwargs.get("document_id", current.document_id),
+        message=kwargs.get("message", current.message),
+        chunk_count=kwargs.get("chunk_count", current.chunk_count),
+        current_chunk=kwargs.get("current_chunk", current.current_chunk),
+        total_chunks=kwargs.get("total_chunks", current.total_chunks),
+    )
+
+
 async def process_file_async(
     mode_name: str,
     file_path: Path,
@@ -46,20 +61,25 @@ async def process_file_async(
 ):
     """Background task to process uploaded file using unstructured."""
     try:
-        _processing_status[task_id] = ProcessingStatus(
-            status="processing",
-            message=f"Processing {filename}..."
-        )
+        update_status(task_id, status="processing", message=f"Reading {filename}...")
         
         doc = await process_document(
             mode_name=mode_name,
             filename=filename,
             file_path=str(file_path),
             enrich_with_llm=enrich_with_llm,
-            enrichment_model=enrichment_model
+            enrichment_model=enrichment_model,
+            progress_callback=lambda msg, current=0, total=0: update_status(
+                task_id, 
+                status="processing", 
+                message=msg,
+                current_chunk=current,
+                total_chunks=total
+            )
         )
         
-        _processing_status[task_id] = ProcessingStatus(
+        update_status(
+            task_id,
             status="completed",
             document_id=doc.id,
             message=f"Successfully processed {filename}",
@@ -68,10 +88,7 @@ async def process_file_async(
         
     except Exception as e:
         logger.error(f"Error processing file {filename}: {e}")
-        _processing_status[task_id] = ProcessingStatus(
-            status="error",
-            message=str(e)
-        )
+        update_status(task_id, status="error", message=str(e))
 
 
 @router.post("/upload")

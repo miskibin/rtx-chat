@@ -67,8 +67,8 @@ export default function SettingsPage() {
   }>>([])
   const [isUploading, setIsUploading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
-  const [enrichWithLlm, setEnrichWithLlm] = useState(true)
-  const [enrichmentModel, setEnrichmentModel] = useState("qwen3:4b")
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null)
+  const [enrichmentModel, setEnrichmentModel] = useState("grok-4-1-fast-non-reasoning")
   
   // Document chunks dialog state
   const [selectedDocument, setSelectedDocument] = useState<{
@@ -171,12 +171,16 @@ export default function SettingsPage() {
     if (!editingMode?.name) return
     setIsUploading(true)
     setUploadStatus("Uploading...")
+    setUploadProgress(null)
     
     try {
       const formData = new FormData()
       formData.append("file", file)
-      formData.append("enrich_with_llm", enrichWithLlm.toString())
-      formData.append("enrichment_model", enrichmentModel)
+      const useEnrichment = enrichmentModel !== "none"
+      formData.append("enrich_with_llm", useEnrichment.toString())
+      if (useEnrichment) {
+        formData.append("enrichment_model", enrichmentModel)
+      }
       
       const res = await fetch(`${API_URL}/modes/${editingMode.name}/knowledge/upload`, {
         method: "POST",
@@ -208,20 +212,28 @@ export default function SettingsPage() {
           const data = await res.json()
           setUploadStatus(data.message)
           
+          // Update progress if available
+          if (data.total_chunks > 0) {
+            setUploadProgress({ current: data.current_chunk, total: data.total_chunks })
+          }
+          
           if (data.status === "completed") {
             setIsUploading(false)
+            setUploadProgress(null)
             fetchDocuments(editingMode.name)
             setTimeout(() => setUploadStatus(null), 3000)
           } else if (data.status === "error") {
             setIsUploading(false)
+            setUploadProgress(null)
             setTimeout(() => setUploadStatus(null), 5000)
           } else {
-            // Still processing, poll again
-            setTimeout(checkStatus, 1000)
+            // Still processing, poll again (faster polling for responsive updates)
+            setTimeout(checkStatus, 500)
           }
         }
       } catch (error) {
         setIsUploading(false)
+        setUploadProgress(null)
         setUploadStatus("Failed to check status")
       }
     }
@@ -594,17 +606,14 @@ export default function SettingsPage() {
                             </div>
                             <div className="flex items-center gap-2">
                               <Label className="text-xs text-muted-foreground">LLM enrichment</Label>
-                              <Switch 
-                                checked={enrichWithLlm} 
-                                onCheckedChange={setEnrichWithLlm}
-                              />
-                            </div>
-                            {enrichWithLlm && (
                               <Select value={enrichmentModel} onValueChange={setEnrichmentModel}>
-                                <SelectTrigger className="w-40 h-8 text-xs">
+                                <SelectTrigger className="w-52 h-8 text-xs">
                                   <SelectValue placeholder="Model" />
                                 </SelectTrigger>
                                 <SelectContent>
+                                  <SelectItem value="none" className="text-xs">
+                                    None (faster)
+                                  </SelectItem>
                                   {models.map((m) => (
                                     <SelectItem key={m.name} value={m.name} className="text-xs">
                                       {m.name}
@@ -612,16 +621,29 @@ export default function SettingsPage() {
                                   ))}
                                 </SelectContent>
                               </Select>
-                            )}
+                            </div>
                           </div>
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         {/* Upload Status */}
                         {uploadStatus && (
-                          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${isUploading ? "bg-blue-500/10 text-blue-600" : uploadStatus.includes("failed") || uploadStatus.includes("error") ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
-                            {isUploading && <Loader2Icon className="size-4 animate-spin" />}
-                            <span>{uploadStatus}</span>
+                          <div className={`p-3 rounded-lg text-sm ${isUploading ? "bg-blue-500/10 text-blue-600" : uploadStatus.includes("failed") || uploadStatus.includes("error") ? "bg-red-500/10 text-red-600" : "bg-green-500/10 text-green-600"}`}>
+                            <div className="flex items-center gap-2">
+                              {isUploading && <Loader2Icon className="size-4 animate-spin" />}
+                              <span className="flex-1">{uploadStatus}</span>
+                              {uploadProgress && uploadProgress.total > 0 && (
+                                <span className="text-xs font-mono">{uploadProgress.current}/{uploadProgress.total}</span>
+                              )}
+                            </div>
+                            {uploadProgress && uploadProgress.total > 0 && (
+                              <div className="mt-2 h-1.5 bg-blue-200 dark:bg-blue-900 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-blue-500 transition-all duration-300"
+                                  style={{ width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%` }}
+                                />
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -721,8 +743,8 @@ export default function SettingsPage() {
 
       {/* Document Chunks Dialog */}
       <Dialog open={selectedDocument !== null} onOpenChange={(open) => !open && setSelectedDocument(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-5xl h-[85vh] flex flex-col">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               {selectedDocument && getDocTypeIcon(selectedDocument.doc_type)}
               {selectedDocument?.filename}
@@ -735,37 +757,39 @@ export default function SettingsPage() {
             </DialogDescription>
           </DialogHeader>
           
-          <ScrollArea className="max-h-[60vh] pr-4">
-            {isLoadingChunks ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : documentChunks.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">No chunks found</p>
-            ) : (
-              <div className="space-y-4">
-                {documentChunks.map((chunk) => (
-                  <div key={chunk.index} className="p-4 rounded-lg border bg-muted/30">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="outline" className="text-xs">
-                        <HashIcon className="size-3 mr-1" />
-                        {chunk.index}
-                      </Badge>
-                      {chunk.topics.length > 0 && chunk.topics.map((topic) => (
-                        <Badge key={topic} variant="secondary" className="text-xs">
-                          {topic}
+          <div className="flex-1 overflow-hidden">
+            <ScrollArea className="h-full pr-4">
+              {isLoadingChunks ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : documentChunks.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No chunks found</p>
+              ) : (
+                <div className="space-y-4 pb-4">
+                  {documentChunks.map((chunk) => (
+                    <div key={chunk.index} className="p-4 rounded-lg border bg-muted/30">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <Badge variant="outline" className="text-xs">
+                          <HashIcon className="size-3 mr-1" />
+                          {chunk.index}
                         </Badge>
-                      ))}
+                        {chunk.topics.length > 0 && chunk.topics.map((topic) => (
+                          <Badge key={topic} variant="secondary" className="text-xs">
+                            {topic}
+                          </Badge>
+                        ))}
+                      </div>
+                      {chunk.summary && (
+                        <p className="text-sm font-medium mb-2">{chunk.summary}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground whitespace-pre-wrap">{chunk.content}</p>
                     </div>
-                    {chunk.summary && (
-                      <p className="text-sm font-medium mb-2">{chunk.summary}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground whitespace-pre-wrap">{chunk.content}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
     </SidebarInset>

@@ -63,7 +63,6 @@ export function AppSidebar() {
 
   const handleDeleteConversation = async (e: React.MouseEvent, convId: string) => {
     e.stopPropagation()
-    if (!confirm("Delete this conversation?")) return
     try {
       await fetch(`${API_URL}/conversations/${convId}`, { method: "DELETE" })
       if (convId === currentConversationId) {
@@ -121,20 +120,20 @@ export function AppSidebar() {
                     <div
                       key={conv.id}
                       onClick={() => handleSelectConversation(conv)}
-                      className={`group/item flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors hover:bg-accent ${
+                      className={`group/item flex items-center gap-1.5 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors hover:bg-accent ${
                         conv.id === currentConversationId ? "bg-accent" : ""
                       }`}
                     >
                       <MessageSquareIcon className="size-4 shrink-0 text-muted-foreground" />
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 overflow-hidden">
                         <p className="truncate font-medium text-xs">{conv.title || "Untitled"}</p>
                         <p className="text-xs text-muted-foreground">{formatRelativeTime(conv.updated_at)}</p>
                       </div>
                       <button
-                        className="size-6 flex items-center justify-center rounded opacity-0 group-hover/item:opacity-100 hover:bg-destructive/10 transition-all shrink-0"
+                        className="size-7 flex items-center justify-center rounded opacity-0 group-hover/item:opacity-100 hover:bg-destructive/10 transition-all shrink-0"
                         onClick={(e) => handleDeleteConversation(e, conv.id)}
                       >
-                        <Trash2Icon className="size-3 text-muted-foreground hover:text-destructive" />
+                        <Trash2Icon className="size-4 text-muted-foreground hover:text-destructive" />
                       </button>
                     </div>
                   ))
