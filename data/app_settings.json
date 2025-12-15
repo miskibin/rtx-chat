@@ -1,4 +1,4 @@
 {
-  "knowledge_min_similarity": 0.85,
+  "knowledge_min_similarity": 0.8,
   "memory_min_similarity": 0.85
 }
