@@ -5,14 +5,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 const CACHE_DURATIONS = {
   models: 30 * 60 * 1000,      // 30 minutes (models rarely change)
-  modes: 30 * 60 * 1000,       // 30 minutes (modes rarely change)
+  agents: 30 * 60 * 1000,       // 30 minutes (agents rarely change)
   conversations: 2 * 60 * 1000, // 2 minutes
   memories: 2 * 60 * 1000,      // 2 minutes
 }
 
 type CacheTimestamps = {
   models: number
-  modes: number
+  agents: number
   conversations: number
   memories: number
 }
@@ -30,8 +30,8 @@ type MessageMetadata = { elapsed_time: number; input_tokens: number; output_toke
 type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[]; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; metadata?: MessageMetadata; experimental_attachments?: Attachment[] }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean; supports_vision: boolean }
 type PromptVariable = { name: string; desc: string }
-type ModeData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean; min_similarity?: number }
-type ConversationMeta = { id: string; title: string; updated_at: string; mode: string; model: string }
+type AgentData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean; min_similarity?: number }
+type ConversationMeta = { id: string; title: string; updated_at: string; agent: string; model: string }
 type Person = { id: string; name: string; description: string; relation: string; sentiment: string }
 type Event = { id: string; description: string; date: string; participants: string[] }
 type Memory = { id: string; type: string; content: string }
@@ -50,8 +50,8 @@ type ChatStore = {
   selectedModel: string
   currentThinkingId: string | null
   editingMessageId: string | null
-  selectedMode: string
-  availableModes: ModeData[]
+  selectedAgent: string
+  availableAgents: AgentData[]
   promptVariables: PromptVariable[]
   allTools: string[]
   toolsByCategory: Record<string, { label: string; tools: { name: string; description: string }[] }>
@@ -70,13 +70,13 @@ type ChatStore = {
   setSelectedModel: (model: string) => void
   setCurrentThinkingId: (id: string | null) => void
   setEditingMessageId: (id: string | null) => void
-  setSelectedMode: (mode: string) => void
-  setAvailableModes: (modes: ModeData[], variables: PromptVariable[], allTools: string[]) => void
+  setSelectedAgent: (agent: string) => void
+  setAvailableAgents: (agents: AgentData[], variables: PromptVariable[], allTools: string[]) => void
   setToolsByCategory: (toolsByCategory: Record<string, { label: string; tools: { name: string; description: string }[] }>) => void
   clearMessages: () => void
   setConversations: (conversations: ConversationMeta[]) => void
   setCurrentConversationId: (id: string | null) => void
-  loadConversation: (id: string, messages: MessageType[], mode?: string, model?: string) => void
+  loadConversation: (id: string, messages: MessageType[], agent?: string, model?: string) => void
   startNewConversation: () => void
   setTitleGeneration: (enabled: boolean) => void
   setAutoSave: (enabled: boolean) => void
@@ -84,11 +84,10 @@ type ChatStore = {
   setGlobalSettings: (settings: GlobalSettings) => void
   fetchGlobalSettings: () => Promise<GlobalSettings>
   updateGlobalSettings: (patch: Partial<GlobalSettings>) => Promise<GlobalSettings>
-  fetchInitData: () => Promise<{ models: Model[]; modes: ModeData[]; conversations: ConversationMeta[] }>
+  fetchInitData: () => Promise<{ models: Model[]; agents: AgentData[]; conversations: ConversationMeta[] }>
   fetchModelsIfStale: () => Promise<Model[]>
-  fetchModesIfStale: () => Promise<ModeData[]>
+  fetchAgentsIfStale: () => Promise<AgentData[]>
   fetchConversationsIfStale: () => Promise<ConversationMeta[]>
-  fetchMemoriesIfStale: () => Promise<MemoriesData>
   invalidateCache: (key: keyof CacheTimestamps) => void
   _hasHydrated: boolean
   setHasHydrated: (state: boolean) => void
@@ -106,8 +105,8 @@ export const useChatStore = create<ChatStore>()(
       selectedModel: "",
       currentThinkingId: null,
       editingMessageId: null,
-      selectedMode: "",
-      availableModes: [],
+      selectedAgent: "",
+      availableAgents: [],
       promptVariables: [],
       allTools: [],
       toolsByCategory: {},
@@ -117,7 +116,7 @@ export const useChatStore = create<ChatStore>()(
       autoSave: true,
       memoriesData: { memories: [], people: [], events: [], duplicates: [], graphData: { nodes: [], links: [] } },
       globalSettings: { knowledge_min_similarity: 0.7, memory_min_similarity: 0.65 },
-      cacheTimestamps: { models: 0, modes: 0, conversations: 0, memories: 0 },
+      cacheTimestamps: { models: 0, agents: 0, conversations: 0, memories: 0 },
       setMessages: (fn) => set((state) => ({ messages: fn(state.messages) })),
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setInput: (input) => set({ input }),
@@ -126,16 +125,16 @@ export const useChatStore = create<ChatStore>()(
       setSelectedModel: (selectedModel) => set({ selectedModel }),
       setCurrentThinkingId: (currentThinkingId) => set({ currentThinkingId }),
       setEditingMessageId: (editingMessageId) => set({ editingMessageId }),
-      setSelectedMode: (selectedMode) => set({ selectedMode }),
-      setAvailableModes: (modes, variables, allTools) => set({ availableModes: modes, promptVariables: variables, allTools }),
+      setSelectedAgent: (selectedAgent) => set({ selectedAgent }),
+      setAvailableAgents: (agents, variables, allTools) => set({ availableAgents: agents, promptVariables: variables, allTools }),
       setToolsByCategory: (toolsByCategory) => set({ toolsByCategory }),
       clearMessages: () => set({ messages: [], currentConversationId: null }),
       setConversations: (conversations) => set({ conversations }),
       setCurrentConversationId: (currentConversationId) => set({ currentConversationId }),
-      loadConversation: (id, messages, mode, model) => set({ 
+      loadConversation: (id, messages, agent, model) => set({ 
         currentConversationId: id, 
         messages,
-        ...(mode && { selectedMode: mode }),
+        ...(agent && { selectedAgent: agent }),
         ...(model && { selectedModel: model }),
       }),
       startNewConversation: () => set({ messages: [], currentConversationId: null }),
@@ -167,24 +166,24 @@ export const useChatStore = create<ChatStore>()(
         const state = get()
         const now = Date.now()
         const modelsValid = state.models.length > 0 && isCacheValid(state.cacheTimestamps.models, CACHE_DURATIONS.models)
-        const modesValid = state.availableModes.length > 0 && isCacheValid(state.cacheTimestamps.modes, CACHE_DURATIONS.modes)
+        const agentsValid = state.availableAgents.length > 0 && isCacheValid(state.cacheTimestamps.agents, CACHE_DURATIONS.agents)
         const conversationsValid = state.conversations.length > 0 && isCacheValid(state.cacheTimestamps.conversations, CACHE_DURATIONS.conversations)
         
         // If all caches are valid, return cached data
-        if (modelsValid && modesValid && conversationsValid) {
-          return { models: state.models, modes: state.availableModes, conversations: state.conversations }
+        if (modelsValid && agentsValid && conversationsValid) {
+          return { models: state.models, agents: state.availableAgents, conversations: state.conversations }
         }
         
         // Fetch combined data from /init endpoint
         const res = await fetch(`${API_URL}/init`)
         const data = await res.json()
         const models = data.models || []
-        const modes = data.modes || []
+        const agents = data.agents || []
         const conversations = data.conversations || []
         
         set({ 
           models,
-          availableModes: modes,
+          availableAgents: agents,
           promptVariables: data.variables || [],
           allTools: data.all_tools || [],
           toolsByCategory: data.tools_by_category || {},
@@ -192,12 +191,12 @@ export const useChatStore = create<ChatStore>()(
           cacheTimestamps: { 
             ...get().cacheTimestamps, 
             models: now, 
-            modes: now, 
+            agents: now, 
             conversations: now 
           } 
         })
         
-        return { models, modes, conversations }
+        return { models, agents, conversations }
       },
 
       fetchModelsIfStale: async () => {
@@ -212,22 +211,22 @@ export const useChatStore = create<ChatStore>()(
         return models
       },
 
-      fetchModesIfStale: async () => {
+      fetchAgentsIfStale: async () => {
         const state = get()
-        if (state.availableModes.length > 0 && isCacheValid(state.cacheTimestamps.modes, CACHE_DURATIONS.modes)) {
-          return state.availableModes
+        if (state.availableAgents.length > 0 && isCacheValid(state.cacheTimestamps.agents, CACHE_DURATIONS.agents)) {
+          return state.availableAgents
         }
-        const res = await fetch(`${API_URL}/modes`)
+        const res = await fetch(`${API_URL}/agents`)
         const data = await res.json()
-        const modes = data.modes || []
+        const agents = data.agents || []
         set({ 
-          availableModes: modes, 
+          availableAgents: agents, 
           promptVariables: data.variables || [], 
           allTools: data.all_tools || [],
           toolsByCategory: data.tools_by_category || {},
-          cacheTimestamps: { ...get().cacheTimestamps, modes: Date.now() } 
+          cacheTimestamps: { ...get().cacheTimestamps, agents: Date.now() } 
         })
-        return modes
+        return agents
       },
 
       fetchConversationsIfStale: async () => {
@@ -241,32 +240,6 @@ export const useChatStore = create<ChatStore>()(
         set({ conversations, cacheTimestamps: { ...get().cacheTimestamps, conversations: Date.now() } })
         return conversations
       },
-
-      fetchMemoriesIfStale: async () => {
-        const state = get()
-        if (state.memoriesData.memories.length > 0 && isCacheValid(state.cacheTimestamps.memories, CACHE_DURATIONS.memories)) {
-          return state.memoriesData
-        }
-        const [memRes, pplRes, evtRes, dupRes, graphRes] = await Promise.all([
-          fetch(`${API_URL}/memories?limit=100`),
-          fetch(`${API_URL}/memories/people`),
-          fetch(`${API_URL}/memories/events`),
-          fetch(`${API_URL}/memories/duplicates?threshold=0.90&limit=20`),
-          fetch(`${API_URL}/memories/graph`)
-        ])
-        const [memData, pplData, evtData, dupData, graphData] = await Promise.all([
-          memRes.json(), pplRes.json(), evtRes.json(), dupRes.json(), graphRes.json()
-        ])
-        const memoriesData: MemoriesData = {
-          memories: memData.memories || [],
-          people: pplData.people || [],
-          events: evtData.events || [],
-          duplicates: dupData.duplicates || [],
-          graphData: { nodes: graphData.nodes || [], links: graphData.links || [] }
-        }
-        set({ memoriesData, cacheTimestamps: { ...get().cacheTimestamps, memories: Date.now() } })
-        return memoriesData
-      },
     }),
     {
       name: "chat-storage",
@@ -274,12 +247,12 @@ export const useChatStore = create<ChatStore>()(
       partialize: (state) => ({
         messages: state.messages,
         selectedModel: state.selectedModel,
-        selectedMode: state.selectedMode,
+        selectedAgent: state.selectedAgent,
         currentConversationId: state.currentConversationId,
         titleGeneration: state.titleGeneration,
         autoSave: state.autoSave,
         models: state.models,
-        availableModes: state.availableModes,
+        availableAgents: state.availableAgents,
         cacheTimestamps: state.cacheTimestamps,
       }),
       onRehydrateStorage: () => (state) => {
@@ -289,4 +262,4 @@ export const useChatStore = create<ChatStore>()(
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, KnowledgeOp, KnowledgeSearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, ModeData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData, GlobalSettings }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, KnowledgeOp, KnowledgeSearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, AgentData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData, GlobalSettings }

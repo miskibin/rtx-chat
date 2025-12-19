@@ -3,10 +3,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.routers import chat, models, memories, artifacts, modes, conversations, knowledge, settings
-from app.routers.modes import seed_templates, VARIABLES, ALL_TOOL_NAMES, TOOLS_BY_CATEGORY
+from app.routers import chat, models, memories, artifacts, agents, conversations, knowledge, settings
+from app.routers.agents import seed_templates, VARIABLES, ALL_TOOL_NAMES, TOOLS_BY_CATEGORY
 from app.routers.models import get_cached_models
-from app.graph_models import Mode, Conversation
+from app.graph_models import Agent, Conversation
 from neo4j_mcp import kg_initialize_database
 
 
@@ -14,7 +14,7 @@ from neo4j_mcp import kg_initialize_database
 async def lifespan(app: FastAPI):
     logger.info("Initializing Neo4j database...")
     kg_initialize_database()
-    logger.info("Seeding mode templates...")
+    logger.info("Seeding agent templates...")
     seed_templates()
     yield
 
@@ -33,7 +33,7 @@ app.include_router(chat.router)
 app.include_router(models.router)
 app.include_router(memories.router)
 app.include_router(artifacts.router)
-app.include_router(modes.router)
+app.include_router(agents.router)
 app.include_router(conversations.router)
 app.include_router(knowledge.router)
 app.include_router(settings.router)
@@ -46,14 +46,14 @@ async def health():
 
 @app.get("/init")
 async def get_init_data():
-    """Combined endpoint returning models, modes, and conversations for faster app initialization."""
+    """Combined endpoint returning models, agents, and conversations for faster app initialization."""
     models_list = get_cached_models()
-    modes_list = Mode.all()
+    agents_list = Agent.all()
     conversations_list = Conversation.all_metadata()
     
     return {
         "models": [m.model_dump() for m in models_list],
-        "modes": [m.model_dump() for m in modes_list],
+        "agents": [a.model_dump() for a in agents_list],
         "variables": VARIABLES,
         "all_tools": ALL_TOOL_NAMES,
         "tools_by_category": TOOLS_BY_CATEGORY,

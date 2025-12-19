@@ -1,4 +1,4 @@
-"""Knowledge base tools for mode-specific document storage and retrieval.
+"""Knowledge base tools for agent-specific document storage and retrieval.
 
 Uses the `unstructured` library for document partitioning, cleaning, and chunking.
 Supports: .txt, .md, .pdf files only.
@@ -180,7 +180,7 @@ JSON only:"""
 
 
 async def process_document(
-    mode_name: str,
+    agent_name: str,
     filename: str,
     file_path: str,
     enrich_with_llm: bool = True,
@@ -234,7 +234,7 @@ async def process_document(
         
         chunk = KnowledgeChunk(
             document_id=doc_id,
-            mode_name=mode_name,
+            agent_name=agent_name,
             content=chunk_content,
             summary=enrichment.get("summary", ""),
             topics=enrichment.get("topics", []),
@@ -246,7 +246,7 @@ async def process_document(
     # Create and save document
     doc = KnowledgeDocument(
         id=doc_id,
-        mode_name=mode_name,
+        agent_name=agent_name,
         filename=filename,
         doc_type=doc_type,
         source_url=None,
@@ -256,12 +256,12 @@ async def process_document(
     )
     doc.save()
     
-    logger.info(f"Saved document {filename} with {len(chunks)} chunks to mode {mode_name}")
+    logger.info(f"Saved document {filename} with {len(chunks)} chunks to agent {agent_name}")
     return doc
 
 
-def retrieve_mode_knowledge(mode_name: str, query: str, limit: int = 5, threshold: float | None = None) -> list[dict]:
-    """Retrieve relevant knowledge chunks for a mode using vector similarity."""
+def retrieve_agent_knowledge(agent_name: str, query: str, limit: int = 5, threshold: float | None = None) -> list[dict]:
+    """Retrieve relevant knowledge chunks for an agent using vector similarity."""
     query_embedding = _embeddings.embed_query(query)
     effective_threshold = threshold if threshold is not None else SIMILARITY_THRESHOLD
     
@@ -270,14 +270,14 @@ def retrieve_mode_knowledge(mode_name: str, query: str, limit: int = 5, threshol
             """
             CALL db.index.vector.queryNodes('embedding_index_KnowledgeChunk', $limit * 2, $embedding)
             YIELD node, score
-            WHERE node.mode_name = $mode_name AND score >= $threshold
+            WHERE node.agent_name = $agent_name AND score >= $threshold
             MATCH (d:KnowledgeDocument {id: node.document_id})
             RETURN node, score, d.filename as source
             ORDER BY score DESC
             LIMIT $limit
             """,
             embedding=query_embedding,
-            mode_name=mode_name,
+            agent_name=agent_name,
             limit=limit,
             threshold=effective_threshold
         )
@@ -294,9 +294,9 @@ def retrieve_mode_knowledge(mode_name: str, query: str, limit: int = 5, threshol
         ]
 
 
-def get_mode_knowledge_text(mode_name: str, query: str, limit: int = 5, threshold: float | None = None) -> str:
+def get_agent_knowledge_text(agent_name: str, query: str, limit: int = 5, threshold: float | None = None) -> str:
     """Get formatted knowledge text for injection into prompt."""
-    chunks = retrieve_mode_knowledge(mode_name, query, limit, threshold)
+    chunks = retrieve_agent_knowledge(agent_name, query, limit, threshold)
     
     if not chunks:
         return ""
@@ -316,25 +316,25 @@ def get_mode_knowledge_text(mode_name: str, query: str, limit: int = 5, threshol
 
 
 @tool
-def search_mode_knowledge(query: str, mode_name: str = "", limit: int = 5, threshold: float = 0.7) -> str:
-    """Search the current mode's knowledge base for relevant information.
+def search_agent_knowledge(query: str, agent_name: str = "", limit: int = 5, threshold: float = 0.7) -> str:
+    """Search the current agent's knowledge base for relevant information.
     
     Use this when you need to find specific information from uploaded documents
-    (txt, md, pdf) that were added to this mode's knowledge base.
+    (txt, md, pdf) that were added to this agent's knowledge base.
     
     Args:
         query: What to search for - be descriptive
-        mode_name: The mode to search in (automatically provided)
+        agent_name: The agent to search in (automatically provided)
         limit: Maximum number of results (default 5)
         threshold: Minimum similarity threshold (automatically provided)
     """
-    if not mode_name:
-        return "No mode context available"
+    if not agent_name:
+        return "No agent context available"
     
-    chunks = retrieve_mode_knowledge(mode_name, query, limit, threshold)
+    chunks = retrieve_agent_knowledge(agent_name, query, limit, threshold)
     
     if not chunks:
-        return "No relevant knowledge found in the mode's knowledge base."
+        return "No relevant knowledge found in the agent's knowledge base."
     
     output = []
     for chunk in chunks:
@@ -351,4 +351,4 @@ def search_mode_knowledge(query: str, mode_name: str = "", limit: int = 5, thres
 
 def get_knowledge_tools():
     """Get knowledge-related tools."""
-    return [search_mode_knowledge]
+    return [search_agent_knowledge]

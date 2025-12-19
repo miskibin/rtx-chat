@@ -17,7 +17,7 @@ class ChatRequest(BaseModel):
     message: str
     messages: list[ChatMessage] | None = None
     model: str = "qwen3:4b"
-    mode: str = "psychological"
+    agent: str = "psychological"
 
 class ChatResponse(BaseModel):
     content: str

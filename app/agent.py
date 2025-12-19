@@ -11,11 +11,11 @@ import asyncio
 import dotenv
 dotenv.load_dotenv()
 
-from app.tools import get_tools
+from app.tools import get_tools, get_tool_category
 from app.tools.memory import get_memory_tools, list_people, retrieve_context, get_user_preferences
 from app.tools.other import get_conversation_summary, set_conversation_summary
-from app.tools.knowledge import get_mode_knowledge_text, retrieve_mode_knowledge
-from app.graph_models import Mode
+from app.tools.knowledge import get_agent_knowledge_text, retrieve_agent_knowledge
+from app.graph_models import Agent
 from app.routers.models import get_provider_config
 from app.global_settings import load_settings
 
@@ -62,9 +62,9 @@ EXAMPLES:
 Be helpful, warm, and concise."""
 
 
-def get_mode(name: str) -> Mode:
-    mode = Mode.get(name)
-    return mode if mode else Mode(name="default", prompt=DEFAULT_PROMPT, enabled_tools=[], max_memories=5, max_tool_runs=10)
+def get_agent_config(name: str) -> Agent:
+    agent = Agent.get(name)
+    return agent if agent else Agent(name="default", prompt=DEFAULT_PROMPT, enabled_tools=[], max_memories=5, max_tool_runs=10)
 
 
 def get_model_capabilities(model_name: str) -> list[str]:
@@ -106,14 +106,14 @@ def create_agent(
 class ConversationManager:
     def __init__(self):
         self.messages: list = []
-        self.agent = None
+        self.llm_agent = None
         self.tools_dict: dict = {}
         self.model_name = "qwen3:4b"
         self.capabilities: list[str] = []
         self.max_tool_runs = 10
         self.max_memories = 5
         self.enabled_tools: list[str] | None = None
-        self.current_mode_name: str = "default"
+        self.current_agent_name: str = "default"
         # Global similarity thresholds (loaded fresh each request)
         self.knowledge_min_similarity: float = 0.7
         self.memory_min_similarity: float = 0.65
@@ -123,13 +123,13 @@ class ConversationManager:
             logger.info(f"Switching model: {self.model_name} -> {model_name}")
             self.model_name = model_name
             self.capabilities = get_model_capabilities(model_name)
-            self.agent = None
+            self.llm_agent = None
 
-    def get_agent(self):
-        if self.agent is None:
+    def get_llm_agent(self):
+        if self.llm_agent is None:
             supports_thinking = "thinking" in self.capabilities
-            self.agent, self.tools_dict = create_agent(self.model_name, supports_thinking, self.enabled_tools)
-        return self.agent, self.tools_dict
+            self.llm_agent, self.tools_dict = create_agent(self.model_name, supports_thinking, self.enabled_tools)
+        return self.llm_agent, self.tools_dict
 
     def add_user_message(self, content: str):
         self.messages.append(HumanMessage(content=content))
@@ -138,27 +138,34 @@ class ConversationManager:
         self.messages.append(AIMessage(content=content))
 
     def get_memories(self, query: str) -> str:
-        result = retrieve_context.invoke({"query": query, "limit": self.max_memories, "threshold": self.memory_min_similarity})
+        result = retrieve_context.invoke(
+            {
+                "query": query,
+                "limit": self.max_memories,
+                "threshold": self.memory_min_similarity,
+                "agent_name": self.current_agent_name,
+            }
+        )
         return str(result) if result and result != "No results" else ""
 
     def get_preferences(self) -> str:
-        result = get_user_preferences.invoke({})
+        result = get_user_preferences.invoke({"agent_name": self.current_agent_name})
         return str(result) if result and result != "No preferences" else ""
 
     def get_people(self) -> list[str]:
-        return list_people()
+        return list_people(self.current_agent_name)
 
-    def get_mode_knowledge(self, query: str, limit: int = 5) -> str:
-        """Retrieve relevant knowledge from the current mode's knowledge base."""
-        return get_mode_knowledge_text(self.current_mode_name, query, limit, self.knowledge_min_similarity)
+    def get_agent_knowledge(self, query: str, limit: int = 5) -> str:
+        """Retrieve relevant knowledge from the current agent's knowledge base."""
+        return get_agent_knowledge_text(self.current_agent_name, query, limit, self.knowledge_min_similarity)
 
-    async def stream_response(self, user_input: str, mode_name: str = "psychological", history: list[dict] | None = None):
-        mode = get_mode(mode_name)
-        self.current_mode_name = mode_name
-        self.max_memories = mode.max_memories
-        self.max_tool_runs = mode.max_tool_runs
-        self.enabled_tools = mode.enabled_tools if mode.enabled_tools else None
-        self.agent = None
+    async def stream_response(self, user_input: str, agent_name: str = "psychological", history: list[dict] | None = None):
+        agent_config = get_agent_config(agent_name)
+        self.current_agent_name = agent_name
+        self.max_memories = agent_config.max_memories
+        self.max_tool_runs = agent_config.max_tool_runs
+        self.enabled_tools = agent_config.enabled_tools if agent_config.enabled_tools else None
+        self.llm_agent = None
         
         # Load global similarity settings fresh each request
         global_settings = load_settings()
@@ -166,16 +173,16 @@ class ConversationManager:
         self.memory_min_similarity = global_settings.memory_min_similarity
         
         memories_text = ""
-        if "{memories}" in mode.prompt:
+        if "{memories}" in agent_config.prompt:
             yield {"type": "memory_search_start", "query": user_input[:100]}
             memories_text = self.get_memories(user_input)
             yield {"type": "memory_search_end", "memories": memories_text.split("\n") if memories_text else []}
 
-        # Retrieve mode-specific knowledge
+        # Retrieve agent-specific knowledge
         knowledge_text = ""
-        if "{mode_knowledge}" in mode.prompt:
+        if "{agent_knowledge}" in agent_config.prompt:
             yield {"type": "knowledge_search_start", "query": user_input[:100]}
-            knowledge_text = self.get_mode_knowledge(user_input, limit=5)
+            knowledge_text = self.get_agent_knowledge(user_input, limit=5)
             yield {"type": "knowledge_search_end", "chunks": knowledge_text.split("\n\n") if knowledge_text else []}
 
         preferences = self.get_preferences()
@@ -185,12 +192,12 @@ class ConversationManager:
         known_people_text = f"Known people: {', '.join(people)}" if people else "No known people yet."
 
         system_msg = SystemMessage(
-            content=mode.prompt.format(
+            content=agent_config.prompt.format(
                 datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 user_preferences=preferences_text,
                 memories=f"Relevant memories:\n{memories_text}" if memories_text else "",
                 known_people=known_people_text,
-                mode_knowledge=f"Relevant knowledge:\n{knowledge_text}" if knowledge_text else "",
+                agent_knowledge=f"Relevant knowledge:\n{knowledge_text}" if knowledge_text else "",
             )
         )
 
@@ -229,7 +236,7 @@ class ConversationManager:
             summary_msg = SystemMessage(content=f"[Previous conversation summary: {summary}]")
             self.messages = [system_msg, summary_msg] + recent_msgs
 
-        llm, tools_dict = self.get_agent()
+        llm, tools_dict = self.get_llm_agent()
 
         logger.info(f"Invoking agent with {len(self.messages)} messages")
         for i, m in enumerate(self.messages):
@@ -304,7 +311,11 @@ class ConversationManager:
                 if isinstance(tool_args, str):
                     import json as _json
                     tool_args = _json.loads(tool_args) if tool_args else {}
-                
+
+                category = get_tool_category(tool_name)
+                if category == "memory":
+                    tool_args["agent_name"] = self.current_agent_name
+
                 if requires_confirmation(tool_name):
                     yield {"type": "tool_confirmation_required", "tool_id": tool_id, "name": tool_name, "input": tool_args}
                     
@@ -320,17 +331,17 @@ class ConversationManager:
                         yield {"type": "tool_denied", "tool_id": tool_id, "name": tool_name}
                     else:
                         tool = tools_dict.get(tool_name)
-                        # Inject mode_name and threshold for knowledge search tool
-                        if tool_name == "search_mode_knowledge":
-                            tool_args["mode_name"] = self.current_mode_name
+                        # Inject agent_name and threshold for knowledge search tool
+                        if tool_name == "search_agent_knowledge":
+                            tool_args["agent_name"] = self.current_agent_name
                             tool_args["threshold"] = self.knowledge_min_similarity
                         tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                         yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}
                 else:
                     tool = tools_dict.get(tool_name)
-                    # Inject mode_name and threshold for knowledge search tool
-                    if tool_name == "search_mode_knowledge":
-                        tool_args["mode_name"] = self.current_mode_name
+                    # Inject agent_name and threshold for knowledge search tool
+                    if tool_name == "search_agent_knowledge":
+                        tool_args["agent_name"] = self.current_agent_name
                         tool_args["threshold"] = self.knowledge_min_similarity
                     tool_result = await tool.ainvoke(tool_args) if tool else "Tool not found"
                     yield {"type": "tool_end", "name": tool_name, "input": tool_args, "output": str(tool_result), "run_id": tool_id}

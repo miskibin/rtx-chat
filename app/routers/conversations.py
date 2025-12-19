@@ -67,7 +67,7 @@ async def generate_title(data: TitleRequest):
 class ConversationCreate(BaseModel):
     title: str
     messages: str  # JSON string
-    mode: str = "psychological"
+    agent: str = "psychological"
     model: str = "qwen3:4b"
 
 
@@ -92,7 +92,7 @@ def create_conversation(data: ConversationCreate):
         created_at=now,
         updated_at=now,
         messages=data.messages,
-        mode=data.mode,
+        agent=data.agent,
         model=data.model,
     )
     conversation.save()

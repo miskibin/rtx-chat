@@ -1,4 +1,4 @@
-"""Knowledge base router for uploading and managing mode-specific documents.
+"""Knowledge base router for uploading and managing agent-specific documents.
 
 Supports: .txt, .md, .pdf files only.
 """
@@ -11,10 +11,10 @@ from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Background
 from pydantic import BaseModel
 from loguru import logger
 
-from app.graph_models import KnowledgeDocument, KnowledgeChunk, Mode
+from app.graph_models import KnowledgeDocument, KnowledgeChunk, Agent
 from app.tools.knowledge import process_document, KNOWLEDGE_FILES_DIR, SUPPORTED_EXTENSIONS
 
-router = APIRouter(prefix="/modes/{mode_name}/knowledge", tags=["knowledge"])
+router = APIRouter(prefix="/agents/{agent_name}/knowledge", tags=["knowledge"])
 
 
 class ProcessingStatus(BaseModel):
@@ -52,7 +52,7 @@ def update_status(task_id: str, **kwargs):
 
 
 async def process_file_async(
-    mode_name: str,
+    agent_name: str,
     file_path: Path,
     filename: str,
     enrich_with_llm: bool,
@@ -64,7 +64,7 @@ async def process_file_async(
         update_status(task_id, status="processing", message=f"Reading {filename}...")
         
         doc = await process_document(
-            mode_name=mode_name,
+            agent_name=agent_name,
             filename=filename,
             file_path=str(file_path),
             enrich_with_llm=enrich_with_llm,
@@ -93,20 +93,20 @@ async def process_file_async(
 
 @router.post("/upload")
 async def upload_file(
-    mode_name: str,
+    agent_name: str,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     enrich_with_llm: bool = Form(True),
     enrichment_model: str = Form("qwen3:4b")
 ):
-    """Upload a file to the mode's knowledge base.
+    """Upload a file to the agent's knowledge base.
     
     Supported file types: .txt, .md, .pdf
     """
-    # Verify mode exists
-    mode = Mode.get(mode_name)
-    if not mode:
-        raise HTTPException(status_code=404, detail=f"Mode '{mode_name}' not found")
+    # Verify agent exists
+    agent = Agent.get(agent_name)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
     
     # Check file extension
     filename = file.filename or "unknown.txt"
@@ -118,13 +118,13 @@ async def upload_file(
         )
     
     # Create storage directory
-    mode_dir = KNOWLEDGE_FILES_DIR / mode_name
-    mode_dir.mkdir(parents=True, exist_ok=True)
+    agent_dir = KNOWLEDGE_FILES_DIR / agent_name
+    agent_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate unique filename
     file_id = str(uuid.uuid4())[:8]
     safe_filename = f"{file_id}_{filename}"
-    file_path = mode_dir / safe_filename
+    file_path = agent_dir / safe_filename
     
     # Save file
     with open(file_path, "wb") as f:
@@ -141,7 +141,7 @@ async def upload_file(
     # Process in background
     background_tasks.add_task(
         process_file_async,
-        mode_name,
+        agent_name,
         file_path,
         filename,
         enrich_with_llm,
@@ -153,7 +153,7 @@ async def upload_file(
 
 
 @router.get("/status/{task_id}")
-async def get_processing_status(mode_name: str, task_id: str):
+async def get_processing_status(agent_name: str, task_id: str):
     """Get the status of a processing task."""
     status = _processing_status.get(task_id)
     if not status:
@@ -162,13 +162,13 @@ async def get_processing_status(mode_name: str, task_id: str):
 
 
 @router.get("")
-async def list_documents(mode_name: str):
-    """List all documents in the mode's knowledge base."""
-    mode = Mode.get(mode_name)
-    if not mode:
-        raise HTTPException(status_code=404, detail=f"Mode '{mode_name}' not found")
+async def list_documents(agent_name: str):
+    """List all documents in the agent's knowledge base."""
+    agent = Agent.get(agent_name)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
     
-    docs = KnowledgeDocument.get_by_mode(mode_name)
+    docs = KnowledgeDocument.get_by_agent(agent_name)
     return {
         "documents": [
             {
@@ -184,10 +184,10 @@ async def list_documents(mode_name: str):
 
 
 @router.get("/{doc_id}")
-async def get_document(mode_name: str, doc_id: str):
+async def get_document(agent_name: str, doc_id: str):
     """Get details of a specific document including its chunks."""
     doc = KnowledgeDocument.get(doc_id)
-    if not doc or doc.mode_name != mode_name:
+    if not doc or doc.agent_name != agent_name:
         raise HTTPException(status_code=404, detail="Document not found")
     
     chunks = KnowledgeChunk.get_by_document(doc_id)
@@ -213,10 +213,10 @@ async def get_document(mode_name: str, doc_id: str):
 
 
 @router.delete("/{doc_id}")
-async def delete_document(mode_name: str, doc_id: str):
+async def delete_document(agent_name: str, doc_id: str):
     """Delete a document and all its chunks from the knowledge base."""
     doc = KnowledgeDocument.get(doc_id)
-    if not doc or doc.mode_name != mode_name:
+    if not doc or doc.agent_name != agent_name:
         raise HTTPException(status_code=404, detail="Document not found")
     
     # Delete file if it exists

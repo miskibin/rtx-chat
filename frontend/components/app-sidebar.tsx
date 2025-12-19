@@ -6,7 +6,7 @@ import Image from "next/image"
 import { useEffect } from "react"
 import { Sidebar, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Trash2Icon, DatabaseIcon, MessageSquareIcon, SettingsIcon, PlusIcon } from "lucide-react"
+import { Trash2Icon, MessageSquareIcon, SettingsIcon, PlusIcon, SparklesIcon } from "lucide-react"
 import { useChatStore, ConversationMeta, MessageType } from "@/lib/store"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -54,7 +54,7 @@ export function AppSidebar() {
       const res = await fetch(`${API_URL}/conversations/${conv.id}`)
       const data = await res.json()
       const messages: MessageType[] = JSON.parse(data.messages || "[]")
-      loadConversation(conv.id, messages, data.mode, data.model)
+      loadConversation(conv.id, messages, data.agent, data.model)
       router.push("/")
     } catch (e) {
       console.error("Failed to load conversation:", e)
@@ -95,8 +95,8 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/memories"}>
-                  <Link href="/memories"><DatabaseIcon className="size-4" /> Memories</Link>
+                <SidebarMenuButton asChild isActive={pathname === "/agents" || pathname.startsWith("/agents/")}>
+                  <Link href="/agents"><SparklesIcon className="size-4" /> Agents</Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

@@ -1,13 +1,11 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import dynamic from "next/dynamic"
-import { BrainIcon, MessageSquareIcon, SlidersHorizontalIcon, SparklesIcon } from "lucide-react"
+import { BrainIcon, MessageSquareIcon, SlidersHorizontalIcon } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 
 import { SidebarInset } from "@/components/ui/sidebar"
 import { PageHeader } from "@/components/page-header"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -17,14 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { useChatStore } from "@/lib/store"
 
-const ModesTab = dynamic(() => import("./_components/ModesTab").then((m) => m.ModesTab), {
-  ssr: false,
-  loading: () => <div className="p-6 text-sm text-muted-foreground">Loading modes…</div>,
-})
-
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState("general")
-
   const { titleGeneration, setTitleGeneration, autoSave, setAutoSave, globalSettings, fetchGlobalSettings, updateGlobalSettings } =
     useChatStore(
       useShallow((s) => ({
@@ -37,8 +28,6 @@ export default function SettingsPage() {
         updateGlobalSettings: s.updateGlobalSettings,
       }))
     )
-
-  const modesCount = useChatStore((s) => s.availableModes.length)
 
   // Keep General tab fast: only fetch what it uses.
   useEffect(() => {
@@ -65,24 +54,16 @@ export default function SettingsPage() {
     <SidebarInset className="flex flex-col h-screen bg-background">
       <PageHeader title="Settings" />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+      <Tabs value="general" className="flex-1 flex flex-col overflow-hidden">
         <div className="border-b px-6">
           <TabsList className="h-11 mt-2">
             <TabsTrigger value="general" className="gap-2">
               <SlidersHorizontalIcon className="size-4" />
               General
             </TabsTrigger>
-            <TabsTrigger value="modes" className="gap-2">
-              <SparklesIcon className="size-4" />
-              Modes
-              <Badge variant="secondary" className="ml-1 rounded text-[10px] px-1.5">
-                {modesCount}
-              </Badge>
-            </TabsTrigger>
           </TabsList>
         </div>
 
-        {/* General Tab */}
         <TabsContent value="general" className="flex-1 overflow-auto mt-0 p-6">
           <div className="mx-auto max-w-2xl space-y-6">
             <Card>
@@ -125,7 +106,7 @@ export default function SettingsPage() {
                   <div>
                     <CardTitle className="text-base">Retrieval Thresholds</CardTitle>
                     <CardDescription>
-                      Minimum similarity scores for memory and knowledge retrieval (applies to all modes)
+                      Minimum similarity scores for memory and knowledge retrieval (applies to all agents)
                     </CardDescription>
                   </div>
                 </div>
@@ -181,10 +162,6 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
 
-        {/* Modes Tab (lazy-loaded) */}
-        <TabsContent value="modes" className="flex-1 overflow-auto mt-0">
-          {activeTab === "modes" ? <ModesTab /> : null}
-        </TabsContent>
       </Tabs>
     </SidebarInset>
   )

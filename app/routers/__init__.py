@@ -1,3 +1,3 @@
-from app.routers import chat, models, memories, artifacts, modes, conversations, knowledge
+from app.routers import chat, models, memories, artifacts, agents, conversations, knowledge, settings
 
-__all__ = ["chat", "models", "memories", "artifacts", "modes", "conversations", "knowledge"]
+__all__ = ["chat", "models", "memories", "artifacts", "agents", "conversations", "knowledge", "settings"]

@@ -1,10 +1,10 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from app.agent import DEFAULT_PROMPT
-from app.graph_models import Mode
+from app.graph_models import Agent
 from app.tools import get_tools, get_tools_by_category
 
-router = APIRouter(tags=["modes"])
+router = APIRouter(tags=["agents"])
 
 ALL_TOOL_NAMES = [t.name for t in get_tools()]
 TOOLS_BY_CATEGORY = get_tools_by_category()
@@ -70,18 +70,18 @@ VARIABLES = [
     {"name": "{memories}", "desc": "Retrieved relevant memories"},
     {"name": "{user_preferences}", "desc": "User preferences from memory"},
     {"name": "{known_people}", "desc": "List of known people"},
-    {"name": "{mode_knowledge}", "desc": "Relevant knowledge from mode's knowledge base"},
+    {"name": "{agent_knowledge}", "desc": "Relevant knowledge from agent's knowledge base"},
 ]
 
 
 def seed_templates():
-    existing = {m.name for m in Mode.all()}
+    existing = {a.name for a in Agent.all()}
     for name, cfg in TEMPLATES.items():
         if name not in existing:
-            Mode(name=name, prompt=cfg["prompt"], enabled_tools=cfg["enabled_tools"], max_memories=cfg["max_memories"], max_tool_runs=cfg["max_tool_runs"], is_template=True).save()
+            Agent(name=name, prompt=cfg["prompt"], enabled_tools=cfg["enabled_tools"], max_memories=cfg["max_memories"], max_tool_runs=cfg["max_tool_runs"], is_template=True).save()
 
 
-class ModeCreate(BaseModel):
+class AgentCreate(BaseModel):
     name: str
     prompt: str
     enabled_tools: list[str] = []
@@ -90,28 +90,37 @@ class ModeCreate(BaseModel):
     is_template: bool = False
 
 
-@router.get("/modes")
-def list_modes():
-    return {"modes": [m.model_dump() for m in Mode.all()], "variables": VARIABLES, "all_tools": ALL_TOOL_NAMES, "tools_by_category": TOOLS_BY_CATEGORY}
+@router.get("/agents")
+def list_agents():
+    return {"agents": [a.model_dump() for a in Agent.all()], "variables": VARIABLES, "all_tools": ALL_TOOL_NAMES, "tools_by_category": TOOLS_BY_CATEGORY}
 
 
-@router.post("/modes")
-def create_mode(data: ModeCreate):
+@router.get("/agents/{name}")
+def get_agent(name: str):
+    agent = Agent.get(name)
+    if not agent:
+        return {"error": "Agent not found"}
+    return agent.model_dump()
+
+
+@router.post("/agents")
+def create_agent(data: AgentCreate):
     missing = [v["name"] for v in VARIABLES[:2] if v["name"] not in data.prompt]
     warning = f"Missing recommended variables: {', '.join(missing)}" if missing else None
-    Mode(**data.model_dump()).save()
+    Agent(**data.model_dump()).save()
     return {"success": True, "warning": warning}
 
 
-@router.put("/modes/{name}")
-def update_mode(name: str, data: ModeCreate):
+@router.put("/agents/{name}")
+def update_agent(name: str, data: AgentCreate):
     missing = [v["name"] for v in VARIABLES[:2] if v["name"] not in data.prompt]
     warning = f"Missing recommended variables: {', '.join(missing)}" if missing else None
-    Mode(name=name, prompt=data.prompt, enabled_tools=data.enabled_tools, max_memories=data.max_memories, max_tool_runs=data.max_tool_runs, is_template=data.is_template).save()
+    Agent(name=name, prompt=data.prompt, enabled_tools=data.enabled_tools, max_memories=data.max_memories, max_tool_runs=data.max_tool_runs, is_template=data.is_template).save()
     return {"success": True, "warning": warning}
 
 
-@router.delete("/modes/{name}")
-def delete_mode(name: str):
-    Mode.delete(name)
+@router.delete("/agents/{name}")
+def delete_agent(name: str):
+    Agent.delete(name)
     return {"success": True}
+

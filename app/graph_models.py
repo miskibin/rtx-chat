@@ -135,9 +135,9 @@ class Preference(Neo4jModel):
 
 
 class KnowledgeDocument(BaseModel):
-    """A document uploaded to a mode's knowledge base."""
+    """A document uploaded to an agent's knowledge base."""
     id: str
-    mode_name: str
+    agent_name: str
     filename: str
     doc_type: str  # "pdf", "url", "image", "text"
     source_url: str | None = None
@@ -150,7 +150,7 @@ class KnowledgeDocument(BaseModel):
             session.run(
                 """
                 MERGE (d:KnowledgeDocument {id: $id})
-                SET d.mode_name = $mode_name,
+                SET d.agent_name = $agent_name,
                     d.filename = $filename,
                     d.doc_type = $doc_type,
                     d.source_url = $source_url,
@@ -158,8 +158,8 @@ class KnowledgeDocument(BaseModel):
                     d.chunk_count = $chunk_count,
                     d.created_at = $created_at
                 WITH d
-                MATCH (m:Mode {name: $mode_name})
-                MERGE (m)-[:HAS_DOCUMENT]->(d)
+                MATCH (a:Agent {name: $agent_name})
+                MERGE (a)-[:HAS_DOCUMENT]->(d)
                 """,
                 **self.model_dump()
             )
@@ -175,13 +175,13 @@ class KnowledgeDocument(BaseModel):
             return KnowledgeDocument(**dict(rec["d"])) if rec else None
 
     @staticmethod
-    def get_by_mode(mode_name: str) -> list["KnowledgeDocument"]:
+    def get_by_agent(agent_name: str) -> list["KnowledgeDocument"]:
         with _driver.session() as session:
             return [
                 KnowledgeDocument(**dict(r["d"]))
                 for r in session.run(
-                    "MATCH (d:KnowledgeDocument {mode_name: $mode_name}) RETURN d ORDER BY d.created_at DESC",
-                    mode_name=mode_name
+                    "MATCH (d:KnowledgeDocument {agent_name: $agent_name}) RETURN d ORDER BY d.created_at DESC",
+                    agent_name=agent_name
                 )
             ]
 
@@ -202,7 +202,7 @@ class KnowledgeDocument(BaseModel):
 class KnowledgeChunk(Neo4jModel):
     """A chunk of text from a knowledge document, enriched with LLM summary and topics."""
     document_id: str
-    mode_name: str
+    agent_name: str
     content: str
     summary: str = ""
     topics: list[str] = []
@@ -263,7 +263,7 @@ class MentionsRelationship(BaseModel):
     sentiment: str | None = Field(default=None, description="e.g., 'positive', 'negative', 'neutral'. How they were talked about")
 
 
-class Mode(BaseModel):
+class Agent(BaseModel):
     name: str
     prompt: str
     enabled_tools: list[str] = []
@@ -275,26 +275,26 @@ class Mode(BaseModel):
     def save(self):
         with _driver.session() as session:
             session.run(
-                "MERGE (m:Mode {name: $name}) SET m.prompt = $prompt, m.enabled_tools = $enabled_tools, m.max_memories = $max_memories, m.max_tool_runs = $max_tool_runs, m.is_template = $is_template, m.min_similarity = $min_similarity",
+                "MERGE (a:Agent {name: $name}) SET a.prompt = $prompt, a.enabled_tools = $enabled_tools, a.max_memories = $max_memories, a.max_tool_runs = $max_tool_runs, a.is_template = $is_template, a.min_similarity = $min_similarity",
                 **self.model_dump()
             )
         return self.name
 
     @staticmethod
-    def get(name: str) -> "Mode | None":
+    def get(name: str) -> "Agent | None":
         with _driver.session() as session:
-            rec = session.run("MATCH (m:Mode {name: $name}) RETURN m", name=name).single()
-            return Mode(**dict(rec["m"])) if rec else None
+            rec = session.run("MATCH (a:Agent {name: $name}) RETURN a", name=name).single()
+            return Agent(**dict(rec["a"])) if rec else None
 
     @staticmethod
-    def all() -> list["Mode"]:
+    def all() -> list["Agent"]:
         with _driver.session() as session:
-            return [Mode(**dict(r["m"])) for r in session.run("MATCH (m:Mode) RETURN DISTINCT m ORDER BY m.is_template DESC, m.name")]
+            return [Agent(**dict(r["a"])) for r in session.run("MATCH (a:Agent) RETURN DISTINCT a ORDER BY a.is_template DESC, a.name")]
 
     @staticmethod
     def delete(name: str):
         with _driver.session() as session:
-            session.run("MATCH (m:Mode {name: $name}) DELETE m", name=name)
+            session.run("MATCH (a:Agent {name: $name}) DELETE a", name=name)
 
 
 class Conversation(BaseModel):
@@ -303,7 +303,7 @@ class Conversation(BaseModel):
     created_at: str
     updated_at: str
     messages: str  # JSON-serialized full message array
-    mode: str = "psychological"
+    agent: str = "psychological"
     model: str = "qwen3:4b"
 
     def save(self) -> str:
@@ -315,7 +315,7 @@ class Conversation(BaseModel):
                     c.created_at = $created_at,
                     c.updated_at = $updated_at,
                     c.messages = $messages,
-                    c.mode = $mode,
+                    c.agent = $agent,
                     c.model = $model
                 """,
                 **self.model_dump()
@@ -351,7 +351,7 @@ class Conversation(BaseModel):
         """Return only id, title, updated_at for listing (without full messages)."""
         with _driver.session() as session:
             return [
-                {"id": r["c"]["id"], "title": r["c"]["title"], "updated_at": r["c"]["updated_at"], "mode": r["c"]["mode"], "model": r["c"]["model"]}
+                {"id": r["c"]["id"], "title": r["c"]["title"], "updated_at": r["c"]["updated_at"], "agent": r["c"]["agent"], "model": r["c"]["model"]}
                 for r in session.run(
                     "MATCH (c:Conversation) RETURN c ORDER BY c.updated_at DESC"
                 )

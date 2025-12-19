@@ -46,7 +46,7 @@ async def chat_stream(request: ChatRequest):
             
             async for chunk in conversation.stream_response(
                 request.message, 
-                request.mode, 
+                request.agent, 
                 history
             ):
                 if chunk["type"] == "memory_search_start":

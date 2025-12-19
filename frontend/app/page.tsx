@@ -159,9 +159,9 @@ export default function Home() {
     setCurrentThinkingId,
     editingMessageId,
     setEditingMessageId,
-    selectedMode,
-    setSelectedMode,
-    availableModes,
+    selectedAgent,
+    setSelectedAgent,
+    availableAgents,
     currentConversationId,
     setCurrentConversationId,
     setConversations,
@@ -186,12 +186,12 @@ export default function Home() {
     if (!_hasHydrated) return;
     
     const loadSettings = async () => {
-      // Single API call fetches models, modes, and conversations
-      const { models: allModels, modes } = await fetchInitData();
+      // Single API call fetches models, agents, and conversations
+      const { models: allModels, agents } = await fetchInitData();
       
-      const currentMode = useChatStore.getState().selectedMode;
-      if (!currentMode && modes.length > 0) {
-        setSelectedMode(modes[0].name);
+      const currentAgent = useChatStore.getState().selectedAgent;
+      if (!currentAgent && agents.length > 0) {
+        setSelectedAgent(agents[0].name);
       }
       
       const currentModel = useChatStore.getState().selectedModel;
@@ -258,7 +258,7 @@ export default function Home() {
           body: JSON.stringify({
             title,
             messages: messagesJson,
-            mode: selectedMode,
+            agent: selectedAgent,
             model: selectedModel,
           }),
         });
@@ -270,7 +270,7 @@ export default function Home() {
     } catch (e) {
       console.error("Failed to save conversation:", e);
     }
-  }, [selectedMode, selectedModel, setCurrentConversationId, invalidateCache, fetchConversationsIfStale]);
+  }, [selectedAgent, selectedModel, setCurrentConversationId, invalidateCache, fetchConversationsIfStale]);
 
   // Debounced auto-save when messages change
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -375,7 +375,7 @@ export default function Home() {
             experimental_attachments: m.experimental_attachments,
           })),
           model: selectedModel,
-          mode: selectedMode,
+          agent: selectedAgent,
         }),
         signal: abortRef.current.signal,
       });
@@ -1380,16 +1380,16 @@ export default function Home() {
                 </PromptInputActionMenu>
 
                 <PromptInputSelect
-                  value={selectedMode}
-                  onValueChange={(v) => v && setSelectedMode(v)}
+                  value={selectedAgent}
+                  onValueChange={(v) => v && setSelectedAgent(v)}
                 >
                   <PromptInputSelectTrigger className="w-[140px]">
-                    <PromptInputSelectValue placeholder="Mode" />
+                    <PromptInputSelectValue placeholder="Agent" />
                   </PromptInputSelectTrigger>
                   <PromptInputSelectContent>
-                    {availableModes.map((m) => (
-                      <PromptInputSelectItem key={m.name} value={m.name}>
-                        {m.name}
+                    {availableAgents.map((a) => (
+                      <PromptInputSelectItem key={a.name} value={a.name}>
+                        {a.name}
                       </PromptInputSelectItem>
                     ))}
                   </PromptInputSelectContent>
