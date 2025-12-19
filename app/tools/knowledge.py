@@ -11,14 +11,17 @@ import json
 import os
 import re
 import uuid
+import time
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
-from typing import Literal, Callable, Optional
+from typing import Literal, Callable, Optional, TypeVar, ParamSpec
 
 from langchain.tools import tool
 from langchain_ollama import OllamaEmbeddings
 from loguru import logger
 from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable, SessionExpired
 from dotenv import load_dotenv
 
 from app.graph_models import KnowledgeDocument, KnowledgeChunk
@@ -29,6 +32,53 @@ URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 AUTH = (os.getenv("NEO4J_USERNAME", "neo4j"), os.getenv("NEO4J_PASSWORD", "password"))
 _driver = GraphDatabase.driver(URI, auth=AUTH, max_connection_lifetime=300, keep_alive=True)
 _embeddings = OllamaEmbeddings(model="embeddinggemma")
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+def with_retry(func: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to retry Neo4j operations on connection failures."""
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                return func(*args, **kwargs)
+            except (ServiceUnavailable, SessionExpired, OSError) as e:
+                last_error = e
+                if attempt < MAX_RETRIES - 1:
+                    logger.warning(f"Neo4j connection error (attempt {attempt + 1}/{MAX_RETRIES}): {e}. Retrying in {RETRY_DELAY}s...")
+                    time.sleep(RETRY_DELAY)
+                    # Force driver to reconnect
+                    try:
+                        _driver.verify_connectivity()
+                    except Exception:
+                        pass
+        raise last_error  # type: ignore
+    return wrapper
+
+
+async def with_retry_async(coro_func, *args, **kwargs):
+    """Retry async operations on connection failures."""
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return await coro_func(*args, **kwargs)
+        except (ServiceUnavailable, SessionExpired, OSError) as e:
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                logger.warning(f"Neo4j connection error (attempt {attempt + 1}/{MAX_RETRIES}): {e}. Retrying in {RETRY_DELAY}s...")
+                await asyncio.sleep(RETRY_DELAY)
+                try:
+                    _driver.verify_connectivity()
+                except Exception:
+                    pass
+    raise last_error  # type: ignore
 
 KNOWLEDGE_FILES_DIR = Path("knowledge_files")
 CHUNK_SIZE = 800
@@ -129,11 +179,57 @@ def partition_and_chunk(file_path: Path, chunk_size: int = CHUNK_SIZE, overlap: 
     return chunk_texts
 
 
-async def enrich_chunk_with_llm(content: str, model: str = "qwen3:4b") -> dict:
+async def generate_document_outline(chunks: list[str], filename: str, model: str = "qwen3:4b") -> str:
+    """Generate a short document outline/summary from the first few chunks."""
+    from app.routers.models import get_provider_config
+    
+    # Use first 3 chunks (or all if less) for context
+    sample_text = "\n\n---\n\n".join(chunks[:3])[:3000]
+    
+    prompt = f"""Based on these excerpts from "{filename}", write a 2-3 sentence outline describing what this document is about. Be concise and factual.
+
+Excerpts:
+{sample_text}
+
+Document outline (2-3 sentences):"""
+
+    try:
+        provider_config = get_provider_config(model)
+        
+        if provider_config:
+            from openai import OpenAI
+            api_key, base_url = provider_config
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=150
+            )
+            outline = response.choices[0].message.content.strip()
+        else:
+            import ollama
+            response = ollama.chat(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                options={"num_predict": 150}
+            )
+            outline = response.message.content.strip()
+        
+        logger.info(f"Generated document outline: {outline[:100]}...")
+        return outline[:400]
+    except Exception as e:
+        logger.warning(f"Document outline generation failed: {e}")
+        return ""
+
+
+async def enrich_chunk_with_llm(content: str, model: str = "qwen3:4b", doc_outline: str = "") -> dict:
     """Use LLM to generate summary and classify chunk into fixed content-type tags."""
     from app.routers.models import get_provider_config
     
-    prompt = f"""Classify this text with 1-2 tags from this list:
+    context_section = f"Document context: {doc_outline}\n\n" if doc_outline else ""
+    
+    prompt = f"""{context_section}Classify this text with 1-2 tags from this list:
 overview, detail, definition, explanation, instruction, example, reference, narrative, analysis, comparison, opinion, quote, question, list, data, code, tip, warning, context, dialogue
 
 Return JSON: {{"summary": "1-2 sentence summary", "tags": ["tag1", "tag2"]}}
@@ -179,6 +275,18 @@ JSON only:"""
         return {"summary": "", "topics": []}
 
 
+@with_retry
+def _save_chunk_with_retry(chunk: KnowledgeChunk):
+    """Save a chunk with retry logic for connection failures."""
+    chunk.save()
+
+
+@with_retry
+def _save_document_with_retry(doc: KnowledgeDocument):
+    """Save a document with retry logic for connection failures."""
+    doc.save()
+
+
 async def process_document(
     agent_name: str,
     filename: str,
@@ -216,10 +324,18 @@ async def process_document(
     chunks = await loop.run_in_executor(None, partition_and_chunk, path)
     total_chunks = len(chunks)
     
-    await update_progress(f"Partitioned into {total_chunks} chunks. Generating embeddings...", 0, total_chunks)
+    await update_progress(f"Partitioned into {total_chunks} chunks.", 0, total_chunks)
     
     # Determine doc_type from extension
     doc_type: Literal["pdf", "text"] = "pdf" if ext == ".pdf" else "text"
+    
+    # Generate document outline for context (if LLM enrichment enabled)
+    doc_outline = ""
+    if enrich_with_llm:
+        await update_progress("Generating document outline...")
+        doc_outline = await generate_document_outline(chunks, filename, enrichment_model)
+    
+    await update_progress(f"Processing {total_chunks} chunks...", 0, total_chunks)
     
     # Create and save chunks
     for idx, chunk_content in enumerate(chunks):
@@ -227,7 +343,7 @@ async def process_document(
         
         if enrich_with_llm and chunk_content.strip():
             await update_progress(f"Enriching chunk {idx + 1}/{total_chunks} with LLM...", idx + 1, total_chunks)
-            enrichment = await enrich_chunk_with_llm(chunk_content, enrichment_model)
+            enrichment = await enrich_chunk_with_llm(chunk_content, enrichment_model, doc_outline)
             logger.debug(f"Chunk {idx}: {enrichment.get('summary', '')[:50]}...")
         else:
             await update_progress(f"Embedding chunk {idx + 1}/{total_chunks}...", idx + 1, total_chunks)
@@ -240,10 +356,10 @@ async def process_document(
             topics=enrichment.get("topics", []),
             chunk_index=idx
         )
-        # Run save in thread pool to not block event loop
-        await loop.run_in_executor(None, chunk.save)
+        # Run save in thread pool with retry logic
+        await loop.run_in_executor(None, _save_chunk_with_retry, chunk)
     
-    # Create and save document
+    # Create and save document with retry logic
     doc = KnowledgeDocument(
         id=doc_id,
         agent_name=agent_name,
@@ -254,12 +370,13 @@ async def process_document(
         chunk_count=len(chunks),
         created_at=created_at
     )
-    doc.save()
+    await loop.run_in_executor(None, _save_document_with_retry, doc)
     
     logger.info(f"Saved document {filename} with {len(chunks)} chunks to agent {agent_name}")
     return doc
 
 
+@with_retry
 def retrieve_agent_knowledge(agent_name: str, query: str, limit: int = 5, threshold: float | None = None) -> list[dict]:
     """Retrieve relevant knowledge chunks for an agent using vector similarity."""
     query_embedding = _embeddings.embed_query(query)
