@@ -116,17 +116,21 @@ def retrieve_context(
         for label in labels:
             if label == "Person":
                 if agent_name:
+                    # Use higher limit for initial search, then filter to agent's nodes
                     result = session.run(
                         f"""
                         MATCH (a:Agent {{name: $agent_name}})
-                        CALL db.index.vector.queryNodes('embedding_index_{label}', $limit, $embedding)
+                        CALL db.index.vector.queryNodes('embedding_index_{label}', $search_limit, $embedding)
                         YIELD node, score
                         WHERE (a)-[:HAS_PERSON]->(node)
                         OPTIONAL MATCH (u:User)-[k:KNOWS]->(node)
                         RETURN node, score, k, elementId(node) as id
+                        ORDER BY score DESC
+                        LIMIT $limit
                         """,
                         embedding=query_embedding,
                         limit=limit,
+                        search_limit=max(limit * 20, 100),
                         agent_name=agent_name,
                     )
                 else:
@@ -150,17 +154,21 @@ def retrieve_context(
                     all_results.append({"output": f"Person: {person}{rel} [ID: {rec['id']}]", "score": rec["score"]})
             elif label == "Event":
                 if agent_name:
+                    # Use higher limit for initial search, then filter to agent's nodes
                     result = session.run(
                         f"""
                         MATCH (a:Agent {{name: $agent_name}})
-                        CALL db.index.vector.queryNodes('embedding_index_{label}', $limit, $embedding)
+                        CALL db.index.vector.queryNodes('embedding_index_{label}', $search_limit, $embedding)
                         YIELD node, score
                         WHERE (a)-[:HAS_EVENT]->(node)
                         OPTIONAL MATCH (p:Person)-[:PARTICIPATED_IN]->(node)
                         RETURN node, score, collect(DISTINCT p.name) as participants, elementId(node) as id
+                        ORDER BY score DESC
+                        LIMIT $limit
                         """,
                         embedding=query_embedding,
                         limit=limit,
+                        search_limit=max(limit * 20, 100),
                         agent_name=agent_name,
                     )
                 else:
@@ -186,16 +194,21 @@ def retrieve_context(
             else:
                 rel_type = "HAS_FACT" if label == "Fact" else "HAS_PREFERENCE"
                 if agent_name:
+                    # Use higher limit for initial search, then filter to agent's nodes
+                    # This ensures we don't miss agent's facts that aren't in global top N
                     result = session.run(
                         f"""
                         MATCH (a:Agent {{name: $agent_name}})
-                        CALL db.index.vector.queryNodes('embedding_index_{label}', $limit, $embedding)
+                        CALL db.index.vector.queryNodes('embedding_index_{label}', $search_limit, $embedding)
                         YIELD node, score
                         WHERE (a)-[:{rel_type}]->(node)
                         RETURN node, score, elementId(node) as id
+                        ORDER BY score DESC
+                        LIMIT $limit
                         """,
                         embedding=query_embedding,
                         limit=limit,
+                        search_limit=max(limit * 20, 100),  # Search wider, then narrow down
                         agent_name=agent_name,
                     )
                 else:
