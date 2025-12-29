@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Trash2, AlertTriangle, PlusIcon, WrenchIcon, BrainIcon, SparklesIcon, UploadIcon, FileTextIcon, Loader2Icon, FileIcon, EyeIcon, HashIcon, GlobeIcon, ImageIcon } from "lucide-react"
+import { Trash2, AlertTriangle, PlusIcon, WrenchIcon, BrainIcon, SparklesIcon, UploadIcon, FileTextIcon, Loader2Icon, FileIcon, EyeIcon, HashIcon, GlobeIcon, ImageIcon, Minimize2Icon } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Switch } from "@/components/ui/switch"
 
 import { useChatStore, type AgentData } from "@/lib/store"
 
@@ -569,6 +570,58 @@ export function AgentsTab() {
                   </div>
                 </div>
               </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Minimize2Icon className="size-4" />
+                    <CardTitle className="text-sm">Context Compression</CardTitle>
+                  </div>
+                  <Switch
+                    checked={editingAgent.context_compression ?? true}
+                    onCheckedChange={(checked) => setEditingAgent({ ...editingAgent, context_compression: checked })}
+                  />
+                </div>
+                <CardDescription>
+                  Automatically summarize older messages to enable longer conversations. When disabled, full history is sent to the model.
+                </CardDescription>
+              </CardHeader>
+              {(editingAgent.context_compression ?? true) && (
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm">Max Context Tokens</Label>
+                        <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">{editingAgent.context_max_tokens ?? 6000}</span>
+                      </div>
+                      <Slider
+                        value={[editingAgent.context_max_tokens ?? 6000]}
+                        min={2000}
+                        max={32000}
+                        step={500}
+                        onValueChange={([v]) => setEditingAgent({ ...editingAgent, context_max_tokens: v })}
+                      />
+                      <p className="text-xs text-muted-foreground">Target context size before compression triggers</p>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm">Window Tokens</Label>
+                        <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded">{editingAgent.context_window_tokens ?? 2000}</span>
+                      </div>
+                      <Slider
+                        value={[editingAgent.context_window_tokens ?? 2000]}
+                        min={500}
+                        max={8000}
+                        step={250}
+                        onValueChange={([v]) => setEditingAgent({ ...editingAgent, context_window_tokens: v })}
+                      />
+                      <p className="text-xs text-muted-foreground">Recent tokens kept in full detail</p>
+                    </div>
+                  </div>
+                </CardContent>
+              )}
             </Card>
 
             <Card>

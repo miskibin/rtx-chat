@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] | None = None
     model: str = "qwen3:4b"
     agent: str = "psychological"
+    conversation_id: str | None = None  # For context compression persistence
 
 class ChatResponse(BaseModel):
     content: str

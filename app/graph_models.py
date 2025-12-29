@@ -271,11 +271,24 @@ class Agent(BaseModel):
     max_tool_runs: int = 10
     is_template: bool = False
     min_similarity: float = 0.7
+    # Context compression settings
+    context_compression: bool = True  # Enable/disable context compression
+    context_max_tokens: int = 6000    # Max tokens before compression
+    context_window_tokens: int = 2000  # Recent tokens to keep uncompressed
 
     def save(self):
         with _driver.session() as session:
             session.run(
-                "MERGE (a:Agent {name: $name}) SET a.prompt = $prompt, a.enabled_tools = $enabled_tools, a.max_memories = $max_memories, a.max_tool_runs = $max_tool_runs, a.is_template = $is_template, a.min_similarity = $min_similarity",
+                """MERGE (a:Agent {name: $name}) 
+                SET a.prompt = $prompt, 
+                    a.enabled_tools = $enabled_tools, 
+                    a.max_memories = $max_memories, 
+                    a.max_tool_runs = $max_tool_runs, 
+                    a.is_template = $is_template, 
+                    a.min_similarity = $min_similarity,
+                    a.context_compression = $context_compression,
+                    a.context_max_tokens = $context_max_tokens,
+                    a.context_window_tokens = $context_window_tokens""",
                 **self.model_dump()
             )
         return self.name
@@ -305,6 +318,7 @@ class Conversation(BaseModel):
     messages: str  # JSON-serialized full message array
     agent: str = "psychological"
     model: str = "qwen3:4b"
+    summary_chunks: str = "[]"  # JSON array of rolling summaries
 
     def save(self) -> str:
         with _driver.session() as session:
@@ -316,11 +330,36 @@ class Conversation(BaseModel):
                     c.updated_at = $updated_at,
                     c.messages = $messages,
                     c.agent = $agent,
-                    c.model = $model
+                    c.model = $model,
+                    c.summary_chunks = $summary_chunks
                 """,
                 **self.model_dump()
             )
         return self.id
+    
+    def update_summary(self, summary: str) -> str:
+        """Update the conversation summary."""
+        import json
+        chunks = json.loads(self.summary_chunks) if self.summary_chunks else []
+        chunks.append({
+            "summary": summary,
+            "created_at": datetime.now().isoformat()
+        })
+        # Keep only the last summary (rolling)
+        self.summary_chunks = json.dumps([chunks[-1]] if chunks else [])
+        self.updated_at = datetime.now().isoformat()
+        return self.save()
+    
+    def get_latest_summary(self) -> str:
+        """Get the most recent summary text."""
+        import json
+        try:
+            chunks = json.loads(self.summary_chunks) if self.summary_chunks else []
+            if chunks:
+                return chunks[-1].get("summary", "")
+        except (json.JSONDecodeError, KeyError, IndexError):
+            pass
+        return ""
 
     def update_messages(self, messages: str) -> str:
         self.messages = messages

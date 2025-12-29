@@ -23,14 +23,15 @@ type MemorySearchOp = { type: "search"; status: "started" | "completed"; query?:
 type MemoryOp = MemorySearchOp
 type KnowledgeSearchOp = { type: "search"; status: "started" | "completed"; query?: string; chunks?: string[] }
 type KnowledgeOp = KnowledgeSearchOp
+type ContextCompressionOp = { status: "completed"; summary: string; messages_summarized: number; tokens_before: number; tokens_after: number; tokens_saved: number }
 type ThinkingBlock = { id: string; content: string; isStreaming: boolean }
 type MessageBranch = { id: string; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[] }
 type LiveContent = { content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[] }
 type MessageMetadata = { elapsed_time: number; input_tokens: number; output_tokens: number; tokens_per_second: number; model?: string }
-type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[]; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; metadata?: MessageMetadata; experimental_attachments?: Attachment[] }
+type MessageType = { id: string; role: "user" | "assistant"; content: string; thinkingBlocks?: ThinkingBlock[]; toolCalls?: ToolCall[]; memoryOps?: MemoryOp[]; knowledgeOps?: KnowledgeOp[]; contextCompression?: ContextCompressionOp; branches?: MessageBranch[]; currentBranch?: number; liveContent?: LiveContent; metadata?: MessageMetadata; experimental_attachments?: Attachment[] }
 type Model = { name: string; supports_tools: boolean; supports_thinking: boolean; supports_vision: boolean }
 type PromptVariable = { name: string; desc: string }
-type AgentData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean; min_similarity?: number }
+type AgentData = { name: string; prompt: string; enabled_tools: string[]; max_memories: number; max_tool_runs: number; is_template: boolean; min_similarity?: number; context_compression?: boolean; context_max_tokens?: number; context_window_tokens?: number }
 type ConversationMeta = { id: string; title: string; updated_at: string; agent: string; model: string }
 type Person = { id: string; name: string; description: string; relation: string; sentiment: string }
 type Event = { id: string; description: string; date: string; participants: string[] }
@@ -262,4 +263,4 @@ export const useChatStore = create<ChatStore>()(
   )
 )
 
-export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, KnowledgeOp, KnowledgeSearchOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, AgentData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData, GlobalSettings }
+export type { Attachment, ToolCall, MemoryOp, MemorySearchOp, KnowledgeOp, KnowledgeSearchOp, ContextCompressionOp, ThinkingBlock, MessageType, MessageBranch, LiveContent, MessageMetadata, Model, AgentData, PromptVariable, ConversationMeta, MemoriesData, Person, Event, Memory, Duplicate, GraphData, GlobalSettings }

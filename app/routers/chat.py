@@ -47,9 +47,22 @@ async def chat_stream(request: ChatRequest):
             async for chunk in conversation.stream_response(
                 request.message, 
                 request.agent, 
-                history
+                history,
+                conversation_id=request.conversation_id
             ):
-                if chunk["type"] == "memory_search_start":
+                if chunk["type"] == "summary_generated":
+                    logger.info(f"Context compressed: {chunk['messages_summarized']} messages, saved {chunk['tokens_saved']} tokens")
+                    yield {"data": json.dumps({
+                        "context_compression": {
+                            "status": "completed",
+                            "summary": chunk["summary"],
+                            "messages_summarized": chunk["messages_summarized"],
+                            "tokens_before": chunk["tokens_before"],
+                            "tokens_after": chunk["tokens_after"],
+                            "tokens_saved": chunk["tokens_saved"]
+                        }
+                    })}
+                elif chunk["type"] == "memory_search_start":
                     yield {"data": json.dumps({"memory": "search", "status": "started", "query": chunk["query"]})}
                 elif chunk["type"] == "memory_search_end":
                     yield {"data": json.dumps({"memory": "search", "status": "completed", "memories": chunk["memories"]})}

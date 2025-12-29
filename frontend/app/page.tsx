@@ -96,12 +96,14 @@ import {
   PlusCircleIcon,
   EyeIcon,
   InfoIcon,
+  Minimize2Icon,
 } from "lucide-react";
 import {
   useChatStore,
   type ToolCall,
   type MemoryOp,
   type KnowledgeOp,
+  type ContextCompressionOp,
   type ThinkingBlock,
   type MessageBranch,
   type MessageType,
@@ -113,7 +115,8 @@ type StreamItem =
   | { type: "memory"; data: MemoryOp }
   | { type: "knowledge"; data: KnowledgeOp }
   | { type: "thinking"; data: ThinkingBlock }
-  | { type: "tool"; data: ToolCall };
+  | { type: "tool"; data: ToolCall }
+  | { type: "compression"; data: ContextCompressionOp };
 
 function formatToolInput(toolName: string, input: Record<string, unknown> | undefined): string {
   if (!input) return "";
@@ -376,6 +379,7 @@ export default function Home() {
           })),
           model: selectedModel,
           agent: selectedAgent,
+          conversation_id: currentConversationId,
         }),
         signal: abortRef.current.signal,
       });
@@ -396,7 +400,27 @@ export default function Home() {
           const data = JSON.parse(line.slice(6));
           if (data.content)
             console.log("Raw content:", JSON.stringify(data.content));
-          if (data.memory === "search") {
+          if (data.context_compression) {
+            // Handle context compression event
+            const compressionKey = `${assistantMsg.id}-compression`;
+            setOpenItems((prev) => new Set(prev).add(compressionKey));
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMsg.id) return m;
+                return {
+                  ...m,
+                  contextCompression: {
+                    status: "completed",
+                    summary: data.context_compression.summary,
+                    messages_summarized: data.context_compression.messages_summarized,
+                    tokens_before: data.context_compression.tokens_before,
+                    tokens_after: data.context_compression.tokens_after,
+                    tokens_saved: data.context_compression.tokens_saved,
+                  },
+                };
+              })
+            );
+          } else if (data.memory === "search") {
             const memKey = `${assistantMsg.id}-mem`;
             setOpenItems((prev) => new Set(prev).add(memKey));
             setMessages((prev) =>
@@ -827,6 +851,10 @@ export default function Home() {
     toolCalls?: ToolCall[];
   }): StreamItem[] => {
     const items: StreamItem[] = [];
+    // Context compression appears first (before any other operations)
+    if (msg.contextCompression) {
+      items.push({ type: "compression", data: msg.contextCompression });
+    }
     msg.memoryOps?.forEach((m) => items.push({ type: "memory", data: m }));
     msg.knowledgeOps?.forEach((k) => items.push({ type: "knowledge", data: k }));
     let thinkIdx = 0,
@@ -914,6 +942,44 @@ export default function Home() {
                     ) : (
                       <>
                         {buildStreamOrder(msg).map((item, i) => {
+                          if (item.type === "compression") {
+                            const comp = item.data;
+                            const key = `${msg.id}-compression`;
+                            return (
+                              <Task
+                                key={`compression-${i}`}
+                                open={isOpen(key)}
+                                onOpenChange={() => toggleOpen(key)}
+                              >
+                                <TaskTrigger>
+                                  <div className="flex cursor-pointer items-center gap-2 text-muted-foreground hover:text-foreground">
+                                    <Minimize2Icon className="size-4" />
+                                    <span className="text-sm">
+                                      Context Compressed
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      ({comp.messages_summarized} msgs, ~{comp.tokens_saved.toLocaleString()} tokens saved)
+                                    </span>
+                                    <CheckCircleIcon className="size-3 text-green-600" />
+                                  </div>
+                                </TaskTrigger>
+                                <TaskContent>
+                                  <TaskItem>
+                                    <div className="space-y-2 text-sm">
+                                      <div className="flex justify-between text-xs text-muted-foreground">
+                                        <span>Before: {comp.tokens_before.toLocaleString()} tokens</span>
+                                        <span>After: {comp.tokens_after.toLocaleString()} tokens</span>
+                                      </div>
+                                      <div className="font-medium text-xs">Summary:</div>
+                                      <div className="text-xs bg-muted p-2 rounded whitespace-pre-wrap max-h-40 overflow-y-auto">
+                                        {comp.summary}
+                                      </div>
+                                    </div>
+                                  </TaskItem>
+                                </TaskContent>
+                              </Task>
+                            );
+                          }
                           if (item.type === "memory") {
                             const op = item.data;
                             if (op.type === "search") {

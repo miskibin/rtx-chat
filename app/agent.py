@@ -13,11 +13,11 @@ dotenv.load_dotenv()
 
 from app.tools import get_tools, get_tool_category
 from app.tools.memory import get_memory_tools, list_people, retrieve_context, get_user_preferences
-from app.tools.other import get_conversation_summary, set_conversation_summary
 from app.tools.knowledge import get_agent_knowledge_text, retrieve_agent_knowledge
-from app.graph_models import Agent
+from app.graph_models import Agent, Conversation
 from app.routers.models import get_provider_config
 from app.global_settings import load_settings
+from app.context_manager import ContextManager
 
 pending_confirmations: dict[str, asyncio.Event] = {}
 confirmation_results: dict[str, bool] = {}
@@ -159,7 +159,7 @@ class ConversationManager:
         """Retrieve relevant knowledge from the current agent's knowledge base."""
         return get_agent_knowledge_text(self.current_agent_name, query, limit, self.knowledge_min_similarity)
 
-    async def stream_response(self, user_input: str, agent_name: str = "psychological", history: list[dict] | None = None):
+    async def stream_response(self, user_input: str, agent_name: str = "psychological", history: list[dict] | None = None, conversation_id: str | None = None):
         agent_config = get_agent_config(agent_name)
         self.current_agent_name = agent_name
         self.max_memories = agent_config.max_memories
@@ -172,17 +172,20 @@ class ConversationManager:
         self.knowledge_min_similarity = global_settings.knowledge_min_similarity
         self.memory_min_similarity = global_settings.memory_min_similarity
         
+        # Truncate query for embedding (avoid embedding very long messages)
+        search_query = user_input[:1000] if len(user_input) > 1000 else user_input
+        
         memories_text = ""
         if "{memories}" in agent_config.prompt:
-            yield {"type": "memory_search_start", "query": user_input[:100]}
-            memories_text = self.get_memories(user_input)
+            yield {"type": "memory_search_start", "query": search_query[:100]}
+            memories_text = self.get_memories(search_query)
             yield {"type": "memory_search_end", "memories": memories_text.split("\n") if memories_text else []}
 
         # Retrieve agent-specific knowledge
         knowledge_text = ""
         if "{agent_knowledge}" in agent_config.prompt:
-            yield {"type": "knowledge_search_start", "query": user_input[:100]}
-            knowledge_text = self.get_agent_knowledge(user_input, limit=5)
+            yield {"type": "knowledge_search_start", "query": search_query[:100]}
+            knowledge_text = self.get_agent_knowledge(search_query, limit=5)
             yield {"type": "knowledge_search_end", "chunks": knowledge_text.split("\n\n") if knowledge_text else []}
 
         preferences = self.get_preferences()
@@ -229,12 +232,33 @@ class ConversationManager:
 
             self.add_user_message(user_input)
 
-        summary = get_conversation_summary()
-        if summary and len(self.messages) > 15:
-            system_msg = self.messages[0]
-            recent_msgs = self.messages[-6:]
-            summary_msg = SystemMessage(content=f"[Previous conversation summary: {summary}]")
-            self.messages = [system_msg, summary_msg] + recent_msgs
+        # Context compression with sliding window + rolling summaries
+        existing_summary = ""
+        if conversation_id:
+            conv = Conversation.get(conversation_id)
+            if conv:
+                existing_summary = conv.get_latest_summary()
+        
+        context_mgr = ContextManager(
+            enabled=agent_config.context_compression,
+            max_context_tokens=agent_config.context_max_tokens,
+            window_tokens=agent_config.context_window_tokens,
+            summary_model=self.model_name
+        )
+        
+        self.messages, summary_event = await context_mgr.process(
+            self.messages,
+            existing_summary=existing_summary
+        )
+        
+        if summary_event:
+            # Save the new summary to the conversation
+            if conversation_id:
+                conv = Conversation.get(conversation_id)
+                if conv:
+                    conv.update_summary(summary_event["summary"])
+            # Yield the event so frontend can display it
+            yield summary_event
 
         llm, tools_dict = self.get_llm_agent()
 
@@ -363,7 +387,6 @@ class ConversationManager:
     def clear(self):
         self.messages = []
         self.capabilities = []
-        set_conversation_summary("")
 
 
 conversation = ConversationManager()
