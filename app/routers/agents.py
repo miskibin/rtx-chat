@@ -88,6 +88,10 @@ class AgentCreate(BaseModel):
     max_memories: int = 5
     max_tool_runs: int = 10
     is_template: bool = False
+    # Context compression settings
+    context_compression: bool = True
+    context_max_tokens: int = 6000
+    context_window_tokens: int = 2000
 
 
 @router.get("/agents")
@@ -115,7 +119,17 @@ def create_agent(data: AgentCreate):
 def update_agent(name: str, data: AgentCreate):
     missing = [v["name"] for v in VARIABLES[:2] if v["name"] not in data.prompt]
     warning = f"Missing recommended variables: {', '.join(missing)}" if missing else None
-    Agent(name=name, prompt=data.prompt, enabled_tools=data.enabled_tools, max_memories=data.max_memories, max_tool_runs=data.max_tool_runs, is_template=data.is_template).save()
+    Agent(
+        name=name,
+        prompt=data.prompt,
+        enabled_tools=data.enabled_tools,
+        max_memories=data.max_memories,
+        max_tool_runs=data.max_tool_runs,
+        is_template=data.is_template,
+        context_compression=data.context_compression,
+        context_max_tokens=data.context_max_tokens,
+        context_window_tokens=data.context_window_tokens,
+    ).save()
     return {"success": True, "warning": warning}
 
 
@@ -123,6 +137,7 @@ def update_agent(name: str, data: AgentCreate):
 def delete_agent(name: str):
     Agent.delete(name)
     return {"success": True}
+
 
 
 
