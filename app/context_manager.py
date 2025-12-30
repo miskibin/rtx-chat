@@ -123,12 +123,21 @@ class ContextManager:
         system_msg = messages[0] if messages else None
         conversation_msgs = messages[1:] if system_msg else messages
         
-        # Calculate how many recent messages to keep in the window
-        window_msgs = []
-        window_tokens = 0
+        # Always keep minimum recent messages to ensure model responds to latest input
+        MIN_RECENT_MESSAGES = 4
         
-        # Work backwards to find messages for the sliding window
-        for msg in reversed(conversation_msgs):
+        # Start with guaranteed minimum recent messages
+        if len(conversation_msgs) >= MIN_RECENT_MESSAGES:
+            window_msgs = list(conversation_msgs[-MIN_RECENT_MESSAGES:])
+            remaining_msgs = list(conversation_msgs[:-MIN_RECENT_MESSAGES])
+        else:
+            window_msgs = list(conversation_msgs)
+            remaining_msgs = []
+        
+        window_tokens = count_message_tokens(window_msgs)
+        
+        # Try to add more messages (working backwards) up to token limit
+        for msg in reversed(remaining_msgs):
             msg_tokens = count_message_tokens([msg])
             if window_tokens + msg_tokens > self.window_tokens:
                 break
@@ -181,7 +190,7 @@ class ContextManager:
             return messages
         
         summary_msg = SystemMessage(
-            content=f"[CONVERSATION SUMMARY - Earlier messages have been summarized]\n{summary}"
+            content=f"[HISTORICAL CONTEXT - Summary of earlier conversation. Respond to the user's latest message below, not this summary.]\n{summary}"
         )
         
         # Insert after system message if present
