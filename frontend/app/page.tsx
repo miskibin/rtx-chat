@@ -147,6 +147,26 @@ function formatToolInput(toolName: string, input: Record<string, unknown> | unde
     .join("\n");
 }
 
+function formatToolCallHistory(toolCalls: ToolCall[] | undefined): string {
+  if (!toolCalls?.length) return "";
+  
+  const memoryTools = toolCalls.filter(t => 
+    t.category === "memory" && 
+    (t.status === "completed" || t.status === "denied")
+  );
+  
+  if (!memoryTools.length) return "";
+  
+  const lines = memoryTools.map(t => {
+    const action = t.name.replace(/_/g, " ");
+    const input = t.input ? Object.values(t.input).slice(0, 2).join(", ") : "";
+    const status = t.status === "denied" ? "DENIED by user" : "saved";
+    return `[Memory: ${action} "${input}" - ${status}]`;
+  });
+  
+  return "\n\n---\n" + lines.join("\n");
+}
+
 export default function Home() {
   const {
     messages,
@@ -374,7 +394,9 @@ export default function Home() {
           message,
           messages: historyMessages.map((m) => ({
             role: m.role,
-            content: m.content,
+            content: m.role === "assistant" 
+              ? m.content + formatToolCallHistory(m.toolCalls)
+              : m.content,
             experimental_attachments: m.experimental_attachments,
           })),
           model: selectedModel,

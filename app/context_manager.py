@@ -112,14 +112,14 @@ class ContextManager:
         total_tokens = count_message_tokens(messages)
         logger.info(f"Context tokens: {total_tokens}, threshold: {self.max_context_tokens}")
         
-        # Check if we need to compress
+        # Check if we need to compress at all
         if total_tokens <= self.max_context_tokens:
-            # If we have an existing summary, include it but don't generate new one
+            # Under limit - if we have existing summary, include it; otherwise return as-is
             if existing_summary:
                 return self._inject_summary(messages, existing_summary), None
             return messages, None
         
-        # Need to compress - find the split point for sliding window
+        # Over limit - find the sliding window
         system_msg = messages[0] if messages else None
         conversation_msgs = messages[1:] if system_msg else messages
         
@@ -153,6 +153,23 @@ class ContextManager:
                 return self._inject_summary(messages, existing_summary), None
             return messages, None
         
+        # If we have an existing summary, check if using it fits within limits
+        # Only regenerate if we're still over the limit WITH the existing summary
+        if existing_summary:
+            system_tokens = count_message_tokens([system_msg]) if system_msg else 0
+            summary_tokens = estimate_tokens(existing_summary) + 100  # +100 for wrapper text
+            projected_tokens = system_tokens + summary_tokens + window_tokens
+            
+            if projected_tokens <= self.max_context_tokens:
+                # Existing summary + window fits! No need to regenerate
+                logger.info(f"Using existing summary, projected tokens: {projected_tokens}")
+                compressed = self._inject_summary(
+                    [system_msg] + window_msgs if system_msg else window_msgs,
+                    existing_summary
+                )
+                return compressed, None
+        
+        # Need to generate a new/updated summary
         logger.info(f"Compressing {len(msgs_to_summarize)} messages, keeping {len(window_msgs)} in window")
         
         # Generate summary of older messages
